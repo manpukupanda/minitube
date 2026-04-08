@@ -1,0 +1,532 @@
+"""
+minitube - 最小構成の動画配信 Web アプリ（FastAPI バックエンド）
+
+このモジュールは以下の機能を提供する:
+
+1. 認証（Cookie ベースのセッション管理）
+   - /login          : ログインページ（HTML）
+   - /api/login      : ログイン処理（POST）
+   - /logout         : ログアウト処理
+
+2. 動画アップロード
+   - /upload         : アップロードページ（HTML）
+   - /api/upload     : アップロード処理（POST）
+     mp4 を受け取り、ffmpeg で HLS に変換して /videos/{id}/ に保存する
+
+3. 動画プレイヤー
+   - /player/{id}    : プレイヤーページ（HTML）
+
+4. 署名付きURL生成（secure_link_md5）
+   - /api/videos/{id}/url : 署名付き HLS プレイリスト URL を返す
+     Nginx の secure_link_md5 と互換性のある md5 署名を付与する
+
+技術的なポイント:
+   - 認証は FastAPI の Cookie セッション（itsdangerous で署名）で完結する
+   - Nginx は認証を行わず、HLS ファイルの署名検証のみを担当する
+   - SECRET_KEY は環境変数から取得し、コードには直書きしない
+"""
+
+import base64
+import hashlib
+import os
+import shutil
+import sqlite3
+import subprocess
+import time
+import uuid
+
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+
+# ==============================================================
+# アプリケーション初期化
+# ==============================================================
+
+app = FastAPI(title="minitube", description="最小構成の動画配信 Web アプリ")
+
+# セッションミドルウェアを追加する
+# itsdangerous を使って Cookie を署名付きで管理するため、
+# SECRET_KEY と同じ値を使用することで管理を一元化する
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.environ.get("SECRET_KEY", "changeme_replace_in_production"),
+    # HttpOnly = True はデフォルトで有効
+    # SameSite = Lax（CSRF 対策として有効）
+    same_site="lax",
+    # Secure = False（ローカル開発環境のため）
+    https_only=False,
+)
+
+# Jinja2 テンプレートエンジンを設定する
+# templates/ ディレクトリに HTML ファイルを配置する
+templates = Jinja2Templates(directory="templates")
+
+# SQLite データベースのパス
+# /app ディレクトリにデータベースファイルを作成する
+DB_PATH = "/app/videos.db"
+
+# HLS ファイルの出力先ディレクトリ
+# docker-compose の volumes で Nginx と共有する
+VIDEOS_DIR = "/videos"
+
+
+# ==============================================================
+# データベース初期化
+# ==============================================================
+
+def init_db() -> None:
+    """
+    SQLite データベースを初期化し、動画メタ情報テーブルを作成する。
+
+    テーブル構造:
+        videos:
+            id         TEXT PRIMARY KEY - 動画の一意識別子（UUID）
+            title      TEXT             - 元のファイル名（表示用タイトル）
+            created_at INTEGER          - 登録日時（UNIX タイムスタンプ）
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS videos (
+            id         TEXT PRIMARY KEY,
+            title      TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+# アプリ起動時にデータベースを初期化する
+init_db()
+
+
+# ==============================================================
+# 認証ユーティリティ
+# ==============================================================
+
+class NotAuthenticated(Exception):
+    """未認証ユーザがアクセスしたときに発生させる例外。"""
+    pass
+
+
+@app.exception_handler(NotAuthenticated)
+async def not_authenticated_handler(request: Request, exc: NotAuthenticated):
+    """
+    NotAuthenticated 例外を受け取り、ログインページにリダイレクトする。
+
+    HTML ページへのアクセスが前提のため、JSON エラーではなく
+    303 See Other でリダイレクトする。
+    """
+    return RedirectResponse(url="/login", status_code=303)
+
+
+def require_login(request: Request) -> str:
+    """
+    ログイン済みユーザのみがアクセスできるエンドポイント用の依存関数。
+
+    セッションに "user" キーが存在しない場合は NotAuthenticated を送出する。
+    各ルート関数で `user: str = Depends(require_login)` のように使用する。
+
+    Returns:
+        str: セッションに保存されたユーザ名（"admin"）
+    Raises:
+        NotAuthenticated: 未認証の場合
+    """
+    user = request.session.get("user")
+    if not user:
+        raise NotAuthenticated()
+    return user
+
+
+# ==============================================================
+# 署名付きURL生成ユーティリティ
+# ==============================================================
+
+def generate_signed_url(video_id: str) -> str:
+    """
+    Nginx の secure_link_md5 と互換性のある署名付きURLを生成する。
+
+    署名の計算式:
+        raw_string = expires + uri + secret_key
+        signature  = base64url( MD5( raw_string.encode('utf-8') ) )
+        url        = /videos/{id}/playlist.m3u8?expires={expires}&md5={signature}
+
+    例:
+        expires    = 1712345678
+        uri        = /videos/abc123/playlist.m3u8
+        secret_key = mysecret
+        raw_string = "1712345678/videos/abc123/playlist.m3u8mysecret"
+        signature  = base64url( MD5("1712345678/videos/abc123/playlist.m3u8mysecret") )
+
+    Nginx 側の設定（nginx.conf）:
+        secure_link $arg_md5,$arg_expires;
+        secure_link_md5 "$secure_link_expires$uri${SECRET_KEY}";
+
+    注意:
+        - base64 は URL セーフ形式（+ → -、/ → _）でパディング（=）なし
+        - Nginx が同じ文字列に対して同じ MD5 を計算するため一致する
+
+    Args:
+        video_id: 動画の UUID
+
+    Returns:
+        str: 署名付き HLS プレイリスト URL（/videos/...?expires=...&md5=...）
+    """
+    secret_key = os.environ.get("SECRET_KEY", "changeme_replace_in_production")
+
+    # 有効期限を現在時刻 + 3600 秒（1 時間）に設定する
+    expires = int(time.time()) + 3600
+
+    # 署名対象の URI（クエリパラメータなしのパス）
+    uri = f"/videos/{video_id}/playlist.m3u8"
+
+    # Nginx の secure_link_md5 と同じ文字列を組み立てる
+    # 形式: expires + uri + secret_key（スペースなしで結合）
+    raw_string = f"{expires}{uri}{secret_key}"
+
+    # MD5 ダイジェストを計算し、URL セーフ base64 でエンコードする
+    # Nginx は base64url エンコード（パディングなし）を期待する
+    digest = hashlib.md5(raw_string.encode("utf-8")).digest()
+    signature = base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
+
+    return f"{uri}?expires={expires}&md5={signature}"
+
+
+# ==============================================================
+# HLS 変換ユーティリティ（ffmpeg）
+# ==============================================================
+
+def convert_to_hls(input_path: str, output_dir: str, video_id: str) -> None:
+    """
+    ffmpeg を使って mp4 ファイルを HLS 形式に変換する。
+
+    出力ファイル:
+        /videos/{id}/playlist.m3u8  - HLS プレイリスト（マスターファイル）
+        /videos/{id}/segment000.ts  - セグメントファイル（4 秒ごと）
+        /videos/{id}/segment001.ts
+        ...
+
+    ffmpeg オプションの説明:
+        -i input_path         : 入力ファイルの指定
+        -c:v libx264          : 映像を H.264 でエンコード（HLS との互換性を確保）
+        -c:a aac              : 音声を AAC でエンコード（HLS との互換性を確保）
+        -start_number 0       : セグメント番号を 0 から開始する
+        -hls_time 4           : 各セグメントの長さを 4 秒にする
+        -hls_list_size 0      : プレイリストにすべてのセグメントを記録する（VOD 用）
+        -hls_segment_filename : セグメントファイルの命名パターン
+        -f hls                : 出力フォーマットを HLS に指定
+
+    Args:
+        input_path: 入力 mp4 ファイルのフルパス
+        output_dir: HLS ファイルの出力先ディレクトリ
+        video_id:   動画の UUID（ログ表示用）
+
+    Raises:
+        RuntimeError: ffmpeg の実行が失敗した場合
+    """
+    playlist_path = os.path.join(output_dir, "playlist.m3u8")
+    segment_pattern = os.path.join(output_dir, "segment%03d.ts")
+
+    # ffmpeg コマンドを組み立てる
+    command = [
+        "ffmpeg",
+        "-i", input_path,
+        # 映像: H.264 エンコード（HLS/ブラウザとの互換性確保）
+        "-c:v", "libx264",
+        # 音声: AAC エンコード（ブラウザでの再生互換性確保）
+        "-c:a", "aac",
+        # セグメント番号を 0 から開始
+        "-start_number", "0",
+        # セグメント長を 4 秒に設定
+        "-hls_time", "4",
+        # VOD（録画配信）のため、すべてのセグメントをプレイリストに記録
+        "-hls_list_size", "0",
+        # セグメントファイルの命名パターン（例: segment000.ts）
+        "-hls_segment_filename", segment_pattern,
+        # 出力フォーマットを HLS に指定
+        "-f", "hls",
+        playlist_path,
+    ]
+
+    # ffmpeg を実行する
+    # check=True にすると失敗時に CalledProcessError が発生するが、
+    # ここでは stderr を取得したいので手動で確認する
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        # ffmpeg のエラーメッセージを含めて例外を発生させる
+        raise RuntimeError(
+            f"ffmpeg による HLS 変換に失敗しました（video_id={video_id}）\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+# ==============================================================
+# ルート定義
+# ==============================================================
+
+# --------------------------------------------------------------
+# ルートリダイレクト
+# --------------------------------------------------------------
+
+@app.get("/", include_in_schema=False)
+async def root():
+    """
+    ルートパスへのアクセスをアップロードページにリダイレクトする。
+    未認証の場合は require_login により /login にリダイレクトされる。
+    """
+    return RedirectResponse(url="/upload", status_code=302)
+
+
+# --------------------------------------------------------------
+# 認証エンドポイント
+# --------------------------------------------------------------
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: str = ""):
+    """
+    ログインページを返す。
+
+    認証済みの場合はアップロードページにリダイレクトする。
+
+    Args:
+        request: FastAPI リクエストオブジェクト
+        error:   エラーフラグ（"1" の場合はエラーメッセージを表示する）
+    """
+    # すでにログイン済みならアップロードページにリダイレクト
+    if request.session.get("user"):
+        return RedirectResponse(url="/upload", status_code=303)
+
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": error == "1"},
+    )
+
+
+@app.post("/api/login")
+async def api_login(
+    request: Request,
+    password: str = Form(...),
+):
+    """
+    ログイン処理を行い、認証 Cookie を発行する。
+
+    パスワードは環境変数 ADMIN_PASSWORD から取得する（デフォルト: admin）。
+    認証成功時はセッションに "user" キーを設定し、アップロードページにリダイレクト。
+    認証失敗時は /login?error=1 にリダイレクト。
+
+    セキュリティ上の注意:
+        - 本番環境では ADMIN_PASSWORD を強固なものに変更すること
+        - レートリミットや試行回数制限は本実装には含まれない（最小構成のため）
+
+    Args:
+        request:  FastAPI リクエストオブジェクト
+        password: フォームから送信されたパスワード
+    """
+    # 環境変数からパスワードを取得する（デフォルトは "admin"）
+    admin_password = os.environ.get("ADMIN_PASSWORD", "admin")
+
+    if password == admin_password:
+        # 認証成功: セッションにユーザ名を保存する
+        request.session["user"] = "admin"
+        return RedirectResponse(url="/upload", status_code=303)
+    else:
+        # 認証失敗: エラーフラグ付きでログインページにリダイレクト
+        return RedirectResponse(url="/login?error=1", status_code=303)
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    """
+    ログアウト処理を行い、セッションをクリアしてログインページにリダイレクトする。
+    """
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=303)
+
+
+# --------------------------------------------------------------
+# アップロードエンドポイント
+# --------------------------------------------------------------
+
+@app.get("/upload", response_class=HTMLResponse)
+async def upload_page(
+    request: Request,
+    _user: str = Depends(require_login),
+):
+    """
+    動画アップロードページを返す。未認証の場合は /login にリダイレクト。
+
+    Args:
+        request: FastAPI リクエストオブジェクト
+        _user:   ログイン確認用依存関数（戻り値は使用しない）
+    """
+    # アップロード済み動画一覧を取得して表示する
+    conn = sqlite3.connect(DB_PATH)
+    videos = conn.execute(
+        "SELECT id, title, created_at FROM videos ORDER BY created_at DESC"
+    ).fetchall()
+    conn.close()
+
+    return templates.TemplateResponse(
+        "upload.html",
+        {
+            "request": request,
+            "videos": [
+                {"id": row[0], "title": row[1], "created_at": row[2]}
+                for row in videos
+            ],
+        },
+    )
+
+
+@app.post("/api/upload")
+async def api_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    _user: str = Depends(require_login),
+):
+    """
+    mp4 ファイルをアップロードし、ffmpeg で HLS に変換して保存する。
+
+    処理の流れ:
+        1. アップロードされた mp4 を /tmp/{uuid}.mp4 に一時保存
+        2. ffmpeg を実行して /videos/{uuid}/ 以下に HLS ファイルを出力
+        3. SQLite に動画メタ情報（id, title, created_at）を保存
+        4. /player/{uuid} にリダイレクト
+        5. 一時ファイル（/tmp/{uuid}.mp4）を削除
+
+    Args:
+        request: FastAPI リクエストオブジェクト
+        file:    アップロードされた mp4 ファイル
+        _user:   ログイン確認用依存関数
+
+    Returns:
+        RedirectResponse: /player/{video_id} へのリダイレクト
+    """
+    # 動画の一意識別子を生成する（UUID v4）
+    video_id = str(uuid.uuid4())
+
+    # HLS 出力先ディレクトリを作成する
+    output_dir = os.path.join(VIDEOS_DIR, video_id)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # アップロードされた mp4 を一時ファイルに保存する
+    # /tmp は Docker コンテナ内の一時領域であり、Nginx とは共有しない
+    tmp_path = f"/tmp/{video_id}.mp4"
+    try:
+        with open(tmp_path, "wb") as tmp_file:
+            shutil.copyfileobj(file.file, tmp_file)
+
+        # ffmpeg を使って HLS に変換する
+        # 変換失敗時は RuntimeError が発生する
+        convert_to_hls(
+            input_path=tmp_path,
+            output_dir=output_dir,
+            video_id=video_id,
+        )
+    finally:
+        # 変換成功・失敗にかかわらず一時ファイルを削除する
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    # SQLite に動画メタ情報を保存する
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "INSERT INTO videos (id, title, created_at) VALUES (?, ?, ?)",
+        (video_id, file.filename or "無題", int(time.time())),
+    )
+    conn.commit()
+    conn.close()
+
+    # 変換完了後、プレイヤーページにリダイレクトする
+    return RedirectResponse(url=f"/player/{video_id}", status_code=303)
+
+
+# --------------------------------------------------------------
+# プレイヤーエンドポイント
+# --------------------------------------------------------------
+
+@app.get("/player/{video_id}", response_class=HTMLResponse)
+async def player_page(
+    request: Request,
+    video_id: str,
+    _user: str = Depends(require_login),
+):
+    """
+    動画プレイヤーページを返す。未認証の場合は /login にリダイレクト。
+
+    プレイヤーページは hls.js を使って HLS 動画を再生する。
+    実際の HLS ファイルへのアクセスは署名付きURL（/api/videos/{id}/url）
+    を通じて行い、Nginx の secure_link_md5 で保護される。
+
+    Args:
+        request:  FastAPI リクエストオブジェクト
+        video_id: 動画の UUID
+        _user:    ログイン確認用依存関数
+
+    Returns:
+        HTMLResponse: プレイヤーページ HTML
+    """
+    # データベースから動画メタ情報を取得する
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute(
+        "SELECT id, title FROM videos WHERE id = ?",
+        (video_id,),
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        # 動画が見つからない場合は 404 ページを返す
+        return HTMLResponse(
+            content="<h1>404 - 動画が見つかりません</h1>",
+            status_code=404,
+        )
+
+    return templates.TemplateResponse(
+        "player.html",
+        {
+            "request": request,
+            "video_id": video_id,
+            "title": row[1],
+        },
+    )
+
+
+# --------------------------------------------------------------
+# 署名付きURL生成エンドポイント
+# --------------------------------------------------------------
+
+@app.get("/api/videos/{video_id}/url")
+async def get_signed_url(
+    video_id: str,
+    _user: str = Depends(require_login),
+):
+    """
+    Nginx の secure_link_md5 と互換性のある署名付き HLS プレイリスト URL を返す。
+
+    hls.js はプレイヤーページのロード時にこのエンドポイントを呼び出し、
+    返された URL を使って /videos/{id}/playlist.m3u8 にアクセスする。
+
+    返却 JSON:
+        {"url": "/videos/{id}/playlist.m3u8?expires={TS}&md5={SIG}"}
+
+    署名の計算は generate_signed_url() 関数に委譲する。
+
+    Args:
+        video_id: 動画の UUID
+        _user:    ログイン確認用依存関数
+
+    Returns:
+        JSONResponse: 署名付き URL を含む JSON レスポンス
+    """
+    signed_url = generate_signed_url(video_id)
+    return JSONResponse({"url": signed_url})
