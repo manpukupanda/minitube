@@ -1,0 +1,26 @@
+# Python キャッシュファイル
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# SQLite データベース（動画メタ情報。コンテナ内に作成される）
+*.db
+
+# 環境変数ファイル（SECRET_KEY など。コミットしてはいけない）
+.env
+.env.*
+
+# Docker の一時ファイル
+.dockerignore
+
+# macOS のメタデータ
+.DS_Store
+
+# テスト・カバレッジ
+.coverage
+htmlcov/
+
+# エディタ設定
+.vscode/
+.idea/

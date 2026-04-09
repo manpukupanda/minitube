@@ -1,0 +1,3 @@
+# このディレクトリは ffmpeg が生成する HLS ファイルの出力先です
+# docker-compose の volumes で FastAPI コンテナと Nginx コンテナで共有されます
+# .gitkeep はディレクトリを Git で追跡するための空ファイルです

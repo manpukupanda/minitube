@@ -1,0 +1,82 @@
+# ------------------------------------------------------------
+# minitube - 最小構成の動画配信アプリ
+#
+# コンテナ構成：
+#   api   ... FastAPI（認証・アップロード・署名URL生成）
+#   nginx ... Nginx（HLS 配信 + secure_link_md5 署名検証）
+#
+# /videos ディレクトリを両コンテナで共有し、
+# FastAPI が ffmpeg で変換した HLS ファイルを
+# Nginx が直接配信する。
+#
+# SECRET_KEY の設定方法：
+#   起動前に .env ファイルを作成するか、環境変数を設定する。
+#   例: echo "SECRET_KEY=your_strong_secret_here" > .env
+# ------------------------------------------------------------
+
+services:
+  # ----------------------------------------------------------
+  # FastAPI コンテナ
+  # ポート 8000 でリッスンし、認証・アップロード・
+  # 署名付きURL生成を担当する。
+  # ----------------------------------------------------------
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: minitube_api
+    environment:
+      # SECRET_KEY は署名付きURL生成と Nginx の secure_link_md5 で共有する。
+      # 本番環境では .env ファイルや Docker secrets を使い、
+      # この値を変更すること。
+      - SECRET_KEY=${SECRET_KEY:-changeme_replace_in_production}
+      # ADMIN_PASSWORD は /api/login で使用するパスワード
+      # 本番環境では必ず変更すること
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+    volumes:
+      # /videos を api コンテナにマウントし、ffmpeg の出力先とする
+      - videos_data:/videos
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Nginx コンテナ
+  # /videos/ 以下の HLS ファイルを secure_link_md5 で保護して配信する。
+  # /api/* は FastAPI にリバースプロキシする。
+  #
+  # nginx.conf は docker-compose 起動時に envsubst で処理され、
+  # ${SECRET_KEY} が実際のシークレット値に置換される。
+  # ----------------------------------------------------------
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: minitube_nginx
+    environment:
+      # secure_link_md5 の署名検証に使用する秘密鍵。
+      # FastAPI と同じ値を設定する必要がある。
+      - SECRET_KEY=${SECRET_KEY:-changeme_replace_in_production}
+    volumes:
+      # nginx.conf をテンプレートとしてマウントする
+      # コンテナ起動時に envsubst で ${SECRET_KEY} を置換してから nginx を起動する
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf.template:ro
+      # /videos を nginx コンテナにもマウントし、HLS ファイルを直接配信する
+      - videos_data:/videos:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    # コンテナ起動時に envsubst で ${SECRET_KEY} を nginx.conf に埋め込んでから起動する
+    # '$$SECRET_KEY' の $$ は docker-compose の変数展開を回避するためのエスケープ
+    # envsubst に '$$SECRET_KEY' を渡すことで、nginx の $uri, $host 等は置換されない
+    command: >
+      /bin/sh -c
+      "envsubst '$$SECRET_KEY' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
+      && nginx -g 'daemon off;'"
+    restart: unless-stopped
+
+# ----------------------------------------------------------
+# ボリューム定義
+# videos_data: FastAPI（書き込み）と Nginx（読み取り）で共有する
+# ----------------------------------------------------------
+volumes:
+  videos_data:

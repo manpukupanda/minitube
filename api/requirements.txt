@@ -1,0 +1,6 @@
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+jinja2>=3.1.0
+itsdangerous>=2.1.0
+aiofiles>=23.0.0

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<!--
+  upload.html - 動画アップロードページ
+
+  認証済みユーザが mp4 ファイルをアップロードするためのページ。
+  アップロード後は /api/upload (POST) に送信され、
+  FastAPI が ffmpeg で HLS に変換して /player/{id} にリダイレクトする。
+
+  アップロードフロー:
+    1. ユーザが mp4 ファイルを選択する
+    2. フォームを送信すると /api/upload に POST される
+    3. FastAPI がファイルを受け取り、ffmpeg で HLS に変換する
+    4. 変換完了後、/player/{id} にリダイレクトされる
+
+  過去のアップロード動画一覧も表示する。
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>アップロード - minitube</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    /* ヘッダーバー */
+    header {
+      background: #1a1a1a;
+      border-bottom: 1px solid #333;
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      color: #ff4444;
+    }
+
+    header nav a {
+      color: #aaa;
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-left: 20px;
+      transition: color 0.2s;
+    }
+
+    header nav a:hover {
+      color: #fff;
+    }
+
+    /* メインコンテンツエリア */
+    main {
+      max-width: 720px;
+      margin: 48px auto;
+      padding: 0 24px;
+    }
+
+    /* アップロードカード */
+    .upload-card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 36px;
+      margin-bottom: 40px;
+    }
+
+    .upload-card h2 {
+      font-size: 1.2rem;
+      margin-bottom: 24px;
+      color: #fff;
+    }
+
+    /* ファイル選択エリア */
+    .file-drop-area {
+      border: 2px dashed #444;
+      border-radius: 6px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .file-drop-area:hover {
+      border-color: #ff4444;
+      background: rgba(255, 68, 68, 0.05);
+    }
+
+    .file-drop-area p {
+      color: #888;
+      font-size: 0.95rem;
+    }
+
+    .file-drop-area .icon {
+      font-size: 2.5rem;
+      margin-bottom: 12px;
+    }
+
+    /* 選択ファイル名の表示 */
+    #file-name {
+      margin-top: 12px;
+      font-size: 0.9rem;
+      color: #4caf50;
+    }
+
+    /* 非表示のファイル input */
+    input[type="file"] {
+      display: none;
+    }
+
+    /* アップロードボタン */
+    button[type="submit"] {
+      width: 100%;
+      padding: 12px;
+      margin-top: 20px;
+      background: #ff4444;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button[type="submit"]:hover {
+      background: #cc2222;
+    }
+
+    button[type="submit"]:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+
+    /* アップロード中メッセージ */
+    #uploading-msg {
+      display: none;
+      text-align: center;
+      margin-top: 16px;
+      color: #aaa;
+      font-size: 0.9rem;
+    }
+
+    /* 動画一覧テーブル */
+    .videos-section h2 {
+      font-size: 1.2rem;
+      margin-bottom: 16px;
+      color: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid #2a2a2a;
+      font-size: 0.9rem;
+    }
+
+    th {
+      color: #888;
+      font-weight: normal;
+    }
+
+    td a {
+      color: #ff4444;
+      text-decoration: none;
+    }
+
+    td a:hover {
+      text-decoration: underline;
+    }
+
+    .no-videos {
+      color: #555;
+      text-align: center;
+      padding: 32px;
+    }
+  </style>
+</head>
+<body>
+  <!-- ページヘッダー -->
+  <header>
+    <h1>▶ minitube</h1>
+    <nav>
+      <a href="/upload">アップロード</a>
+      <a href="/logout">ログアウト</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- アップロードフォーム -->
+    <div class="upload-card">
+      <h2>動画をアップロード</h2>
+
+      <!--
+        /api/upload に multipart/form-data で POST する
+        enctype="multipart/form-data" は必須（ファイルアップロード用）
+      -->
+      <form
+        id="upload-form"
+        action="/api/upload"
+        method="post"
+        enctype="multipart/form-data"
+      >
+        <!-- ファイル選択エリア（クリックで input[type=file] を開く） -->
+        <div class="file-drop-area" onclick="document.getElementById('file-input').click()">
+          <div class="icon">📹</div>
+          <p>クリックして mp4 ファイルを選択</p>
+          <p style="font-size:0.8rem; margin-top:6px; color:#555;">対応形式: .mp4</p>
+        </div>
+
+        <!-- 選択されたファイル名を表示するエリア -->
+        <p id="file-name"></p>
+
+        <!-- 非表示のファイル入力（mp4 のみ受け付ける） -->
+        <input
+          type="file"
+          id="file-input"
+          name="file"
+          accept="video/mp4,.mp4"
+          required
+          onchange="onFileSelected(this)"
+        />
+
+        <button type="submit" id="submit-btn" disabled>アップロード＆変換</button>
+
+        <!-- ffmpeg 変換中は時間がかかるため、メッセージを表示する -->
+        <p id="uploading-msg">⏳ アップロード中・HLS 変換中です。しばらくお待ちください...</p>
+      </form>
+    </div>
+
+    <!-- アップロード済み動画一覧 -->
+    <div class="videos-section">
+      <h2>アップロード済みの動画</h2>
+
+      {% if videos %}
+      <table>
+        <thead>
+          <tr>
+            <th>タイトル</th>
+            <th>登録日時</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for video in videos %}
+          <tr>
+            <td>{{ video.title }}</td>
+            <!-- UNIX タイムスタンプを JavaScript で表示変換する -->
+            <td class="ts" data-ts="{{ video.created_at }}">{{ video.created_at }}</td>
+            <td><a href="/player/{{ video.id }}">再生する ▶</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="no-videos">まだ動画がアップロードされていません。</p>
+      {% endif %}
+    </div>
+  </main>
+
+  <script>
+    /**
+     * ファイルが選択されたときの処理
+     * ファイル名を表示し、送信ボタンを有効化する
+     */
+    function onFileSelected(input) {
+      const fileName = input.files[0] ? input.files[0].name : "";
+      document.getElementById("file-name").textContent = fileName
+        ? `選択済み: ${fileName}`
+        : "";
+      document.getElementById("submit-btn").disabled = !fileName;
+    }
+
+    /**
+     * フォーム送信時の処理
+     * 送信ボタンを無効化し、変換中メッセージを表示する
+     * （ffmpeg による変換は時間がかかるため、ユーザに待機を促す）
+     */
+    document.getElementById("upload-form").addEventListener("submit", function () {
+      document.getElementById("submit-btn").disabled = true;
+      document.getElementById("uploading-msg").style.display = "block";
+    });
+
+    /**
+     * UNIX タイムスタンプを日本時間の文字列に変換して表示する
+     * テンプレート側では数値のみ渡し、表示変換は JS 側で行う
+     */
+    document.querySelectorAll(".ts").forEach(function (el) {
+      const ts = parseInt(el.getAttribute("data-ts"), 10);
+      if (!isNaN(ts)) {
+        el.textContent = new Date(ts * 1000).toLocaleString("ja-JP");
+      }
+    });
+  </script>
+</body>
+</html>
