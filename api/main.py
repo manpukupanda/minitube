@@ -310,10 +310,12 @@ async def login_page(request: Request, error: str = ""):
         return RedirectResponse(url="/upload", status_code=303)
 
     return templates.TemplateResponse(
+        request,
         "login.html",
-        {"request": request, "error": error == "1"},
+        {
+            "error": error == "1",
+        },
     )
-
 
 @app.post("/api/login")
 async def api_login(
@@ -380,9 +382,9 @@ async def upload_page(
     conn.close()
 
     return templates.TemplateResponse(
+        request,
         "upload.html",
         {
-            "request": request,
             "videos": [
                 {"id": row[0], "title": row[1], "created_at": row[2]}
                 for row in videos
@@ -495,9 +497,9 @@ async def player_page(
         )
 
     return templates.TemplateResponse(
+        request,
         "player.html",
         {
-            "request": request,
             "video_id": video_id,
             "title": row[1],
         },
@@ -531,5 +533,61 @@ async def get_signed_url(
     Returns:
         JSONResponse: 署名付き URL を含む JSON レスポンス
     """
-    signed_url = generate_signed_url(video_id)
-    return JSONResponse({"url": signed_url})
+    # 署名付きセグメントを埋め込んだプレイリストを返すプロキシエンドポイントを利用する
+    # クライアントはこの URL を読み込み、返却されるプレイリスト内の各セグメントに
+    # expires/md5 が付与されているため、そのまま nginx から取得できる。
+    proxy_url = f"/api/videos/{video_id}/playlist"
+    return JSONResponse({"url": proxy_url})
+
+
+@app.get("/api/videos/{video_id}/playlist")
+async def proxy_signed_playlist(
+    video_id: str,
+    _user: str = Depends(require_login),
+):
+    """
+    ローカルに保存された playlist.m3u8 を読み込み、各セグメント URI に
+    Nginx の secure_link_md5 と互換性のある署名（expires, md5）を付与して返す。
+
+    これによりブラウザは署名付きのセグメント URL を直接 Nginx に要求できる。
+    """
+    playlist_path = os.path.join(VIDEOS_DIR, video_id, "playlist.m3u8")
+
+    if not os.path.exists(playlist_path):
+        return HTMLResponse(content="<h1>404 - playlist not found</h1>", status_code=404)
+
+    secret_key = os.environ.get("SECRET_KEY", "changeme_replace_in_production")
+    expires = int(time.time()) + 3600
+
+    # プレイリストを読み込み、セグメント行（# で始まらない行）を署名付き URL に置換
+    with open(playlist_path, "r", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+
+    out_lines = []
+    for line in lines:
+        if not line or line.startswith("#"):
+            out_lines.append(line)
+            continue
+
+        # 相対パス（例: segment000.ts, segment001.ts）や同ディレクトリの参照を想定
+        seg_path = line.strip()
+
+        # 絶対 URL（http(s)://）や外部参照はそのまま渡す
+        if seg_path.startswith("http://") or seg_path.startswith("https://"):
+            out_lines.append(seg_path)
+            continue
+
+        # Nginx に対する URI を組み立てる（先頭スラッシュ付き）
+        uri = f"/videos/{video_id}/{seg_path}"
+
+        # Nginx と同じ方法で署名を計算する
+        raw = f"{expires}{uri}{secret_key}"
+        digest = hashlib.md5(raw.encode("utf-8")).digest()  # noqa: S324
+        sig = base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
+
+        signed_uri = f"{uri}?expires={expires}&md5={sig}"
+        out_lines.append(signed_uri)
+
+    content = "\n".join(out_lines) + "\n"
+
+    return HTMLResponse(content=content, media_type="application/vnd.apple.mpegurl")
