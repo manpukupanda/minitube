@@ -1,0 +1,5 @@
+# すべてのテキストファイルを LF に正規化する（Windows 上での CRLF 変換を防ぐ）
+* text=auto eol=lf
+
+# シェルスクリプトは必ず LF とする（CRLF だと shebang が壊れてコンテナが起動しない）
+*.sh text eol=lf

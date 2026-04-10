@@ -22,7 +22,7 @@ ENV PYTHONUNBUFFERED=1
 # ffmpeg は mp4 → HLS（playlist.m3u8 + segment*.ts）変換に必要
 # インストール後にキャッシュを削除してイメージサイズを削減する
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
 # アプリケーションの作業ディレクトリを設定
@@ -41,8 +41,9 @@ COPY . .
 RUN mkdir -p /videos
 
 # エントリポイントスクリプトをコピーして実行権限を付与する
+# dos2unix で CRLF → LF に変換する（Windows 環境でクローンした場合の対策）
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN dos2unix /entrypoint.sh && chmod +x /entrypoint.sh
 
 # entrypoint.sh でマイグレーション適用後に uvicorn を起動する
 CMD ["/entrypoint.sh"]
