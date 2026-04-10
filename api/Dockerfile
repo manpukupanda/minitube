@@ -39,7 +39,9 @@ COPY . .
 # （ボリュームマウント前に存在しないとパーミッションエラーになる場合がある）
 RUN mkdir -p /videos
 
-# uvicorn で FastAPI アプリを起動する
-# --host 0.0.0.0 : コンテナ外からアクセス可能にする
-# --port 8000    : 内部ポート（docker-compose でマッピングする）
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# エントリポイントスクリプトをコピーして実行権限を付与する
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# entrypoint.sh でマイグレーション適用後に uvicorn を起動する
+CMD ["/entrypoint.sh"]

@@ -16,6 +16,28 @@
 
 services:
   # ----------------------------------------------------------
+  # PostgreSQL コンテナ
+  # 動画メタ情報（id, title, created_at）を永続化する。
+  # postgres_data ボリュームにデータを保存し、
+  # コンテナ再作成後もデータが保持される。
+  # ----------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: minitube_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-minitube}
+      POSTGRES_USER: ${POSTGRES_USER:-minitube}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_replace_in_production}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-minitube}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------
   # FastAPI コンテナ
   # ポート 8000 でリッスンし、認証・アップロード・
   # 署名付きURL生成を担当する。
@@ -33,11 +55,17 @@ services:
       # ADMIN_PASSWORD は /api/login で使用するパスワード
       # 本番環境では必ず変更すること
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      # DATABASE_URL は PostgreSQL への接続文字列
+      # db サービスのホスト名・認証情報と一致させること
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-minitube}:${POSTGRES_PASSWORD:-changeme_replace_in_production}@db/${POSTGRES_DB:-minitube}
     volumes:
       # /videos を api コンテナにマウントし、ffmpeg の出力先とする
       - videos_data:/videos
     ports:
       - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   # ----------------------------------------------------------
@@ -80,3 +108,4 @@ services:
 # ----------------------------------------------------------
 volumes:
   videos_data:
+  postgres_data:
