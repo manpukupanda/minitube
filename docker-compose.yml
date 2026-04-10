@@ -2,16 +2,19 @@
 # minitube - 最小構成の動画配信アプリ
 #
 # コンテナ構成：
+#   db    ... PostgreSQL（動画メタ情報の永続化）
 #   api   ... FastAPI（認証・アップロード・署名URL生成）
 #   nginx ... Nginx（HLS 配信 + secure_link_md5 署名検証）
 #
-# /videos ディレクトリを両コンテナで共有し、
+# /videos ディレクトリを api/nginx コンテナで共有し、
 # FastAPI が ffmpeg で変換した HLS ファイルを
 # Nginx が直接配信する。
+# 動画メタ情報は PostgreSQL（db コンテナ）に保存し、
+# Alembic でスキーマを管理する。
 #
 # SECRET_KEY の設定方法：
-#   起動前に .env ファイルを作成するか、環境変数を設定する。
-#   例: echo "SECRET_KEY=your_strong_secret_here" > .env
+#   起動前に .env.example をコピーして .env を作成し、各値を設定する。
+#   例: cp .env.example .env
 # ------------------------------------------------------------
 
 services:

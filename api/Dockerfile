@@ -9,7 +9,8 @@
 #   - pip パッケージ: requirements.txt に記載のとおり
 #
 # 起動コマンド:
-#   - uvicorn を使って FastAPI アプリを 0.0.0.0:8000 で起動する
+#   - entrypoint.sh が Alembic マイグレーションを適用してから
+#     uvicorn を起動する
 # ==============================================================
 
 FROM python:3.11-slim
