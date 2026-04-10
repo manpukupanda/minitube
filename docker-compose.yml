@@ -2,19 +2,44 @@
 # minitube - 最小構成の動画配信アプリ
 #
 # コンテナ構成：
+#   db    ... PostgreSQL（動画メタ情報の永続化）
 #   api   ... FastAPI（認証・アップロード・署名URL生成）
 #   nginx ... Nginx（HLS 配信 + secure_link_md5 署名検証）
 #
-# /videos ディレクトリを両コンテナで共有し、
+# /videos ディレクトリを api/nginx コンテナで共有し、
 # FastAPI が ffmpeg で変換した HLS ファイルを
 # Nginx が直接配信する。
+# 動画メタ情報は PostgreSQL（db コンテナ）に保存し、
+# Alembic でスキーマを管理する。
 #
 # SECRET_KEY の設定方法：
-#   起動前に .env ファイルを作成するか、環境変数を設定する。
-#   例: echo "SECRET_KEY=your_strong_secret_here" > .env
+#   起動前に .env.example をコピーして .env を作成し、各値を設定する。
+#   例: cp .env.example .env
 # ------------------------------------------------------------
 
 services:
+  # ----------------------------------------------------------
+  # PostgreSQL コンテナ
+  # 動画メタ情報（id, title, created_at）を永続化する。
+  # postgres_data ボリュームにデータを保存し、
+  # コンテナ再作成後もデータが保持される。
+  # ----------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: minitube_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-minitube}
+      POSTGRES_USER: ${POSTGRES_USER:-minitube}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_replace_in_production}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-minitube}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   # ----------------------------------------------------------
   # FastAPI コンテナ
   # ポート 8000 でリッスンし、認証・アップロード・
@@ -33,11 +58,17 @@ services:
       # ADMIN_PASSWORD は /api/login で使用するパスワード
       # 本番環境では必ず変更すること
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      # DATABASE_URL は PostgreSQL への接続文字列
+      # db サービスのホスト名・認証情報と一致させること
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-minitube}:${POSTGRES_PASSWORD:-changeme_replace_in_production}@db/${POSTGRES_DB:-minitube}
     volumes:
       # /videos を api コンテナにマウントし、ffmpeg の出力先とする
       - videos_data:/videos
     ports:
       - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   # ----------------------------------------------------------
@@ -80,3 +111,4 @@ services:
 # ----------------------------------------------------------
 volumes:
   videos_data:
+  postgres_data:

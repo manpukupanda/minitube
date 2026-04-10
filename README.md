@@ -41,19 +41,18 @@
 │  /api/...  認証・変換・署名  │
 │                               │
 │  ffmpeg: mp4 → HLS 変換      │
-│  SQLite: 動画メタ情報保存     │
-└─────────────┬───────────────┘
-              │
-              │ Volume 共有
-              ▼
-┌─────────────────────────────┐
-│     /videos（共有ボリューム） │
-│                               │
-│  /{uuid}/playlist.m3u8        │
-│  /{uuid}/segment000.ts        │
-│  /{uuid}/segment001.ts        │
-│  ...                          │
-└─────────────────────────────┘
+│  SQLAlchemy: DB アクセス      │
+└──────┬──────────┬────────────┘
+       │          │
+       │ Volume   │ PostgreSQL
+       ▼          ▼
+┌──────────┐  ┌─────────────────────────────┐
+│  /videos  │  │    PostgreSQL コンテナ（db）  │
+│ (共有Vol) │  │                               │
+│           │  │  videos テーブル              │
+│ playlist  │  │  id, title, created_at        │
+│ *.ts ...  │  │                               │
+└──────────┘  └─────────────────────────────┘
 ```
 
 ---
@@ -149,13 +148,20 @@ segment002.ts
 ```
 project/
 ├── docker-compose.yml      Docker サービス定義
+├── .env.example            環境変数のサンプル（.env にコピーして使う）
 ├── README.md               このファイル
 ├── nginx/
 │   └── nginx.conf          Nginx 設定（envsubst テンプレート）
 ├── api/
 │   ├── Dockerfile          FastAPI コンテナのビルド定義
+│   ├── entrypoint.sh       コンテナ起動スクリプト（マイグレーション → uvicorn）
 │   ├── requirements.txt    Python 依存パッケージ
 │   ├── main.py             FastAPI アプリ本体
+│   ├── alembic.ini         Alembic 設定ファイル
+│   ├── alembic/
+│   │   ├── env.py          マイグレーション環境設定
+│   │   ├── script.py.mako  マイグレーションファイルテンプレート
+│   │   └── versions/       マイグレーションファイル群
 │   └── templates/
 │       ├── login.html      ログインページ
 │       ├── upload.html     アップロードページ
@@ -176,8 +182,9 @@ project/
 | 動画再生 | hls.js |
 | 動画配信 | Nginx + secure_link_md5 |
 | 認証 | FastAPI Cookie セッション (itsdangerous) |
-| データベース | SQLite（動画メタ情報のみ） |
-| コンテナ | Docker Compose（2コンテナ構成） |
+| データベース | PostgreSQL（動画メタ情報）|
+| ORM / マイグレーション | SQLAlchemy 2.x + Alembic |
+| コンテナ | Docker Compose（3コンテナ構成） |
 
 ---
 
@@ -199,16 +206,23 @@ cd minitube
 
 #### 2. 環境変数の設定
 
-`.env` ファイルを作成して SECRET_KEY と ADMIN_PASSWORD を設定する。
+`.env.example` をコピーして `.env` を作成し、各値を設定する。
 
 ```bash
-cat > .env << 'EOF'
-SECRET_KEY=your_strong_secret_key_here_change_this
-ADMIN_PASSWORD=your_password_here
-EOF
+cp .env.example .env
 ```
 
-> **注意**: `.env` ファイルはコードに直書きしないこと。Git にコミットしないように `.gitignore` に追加すること。
+`.env` を開いて以下の項目を編集する:
+
+```bash
+SECRET_KEY=your_strong_secret_key_here_change_this
+ADMIN_PASSWORD=your_password_here
+POSTGRES_DB=minitube
+POSTGRES_USER=minitube
+POSTGRES_PASSWORD=your_postgres_password_here
+```
+
+> **注意**: `.env` ファイルはコードに直書きしないこと。Git にコミットしないように `.gitignore` に追加してある。
 
 #### 3. コンテナのビルドと起動
 
@@ -262,6 +276,9 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 ```bash
 export SECRET_KEY="上記で生成した値"
 export ADMIN_PASSWORD="強固なパスワード"
+export POSTGRES_PASSWORD="強固なパスワード"
+export POSTGRES_USER="minitube"
+export POSTGRES_DB="minitube"
 ```
 
 または `.env` ファイルに記載する（Git にコミットしないこと）。
@@ -308,6 +325,9 @@ git pull origin main
 # 環境変数を設定
 export SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 export ADMIN_PASSWORD="your_production_password"
+export POSTGRES_PASSWORD="your_strong_db_password"
+export POSTGRES_USER="minitube"
+export POSTGRES_DB="minitube"
 
 # ビルドと起動
 docker compose up --build -d

@@ -9,7 +9,8 @@
 #   - pip パッケージ: requirements.txt に記載のとおり
 #
 # 起動コマンド:
-#   - uvicorn を使って FastAPI アプリを 0.0.0.0:8000 で起動する
+#   - entrypoint.sh が Alembic マイグレーションを適用してから
+#     uvicorn を起動する
 # ==============================================================
 
 FROM python:3.11-slim
@@ -21,7 +22,7 @@ ENV PYTHONUNBUFFERED=1
 # ffmpeg は mp4 → HLS（playlist.m3u8 + segment*.ts）変換に必要
 # インストール後にキャッシュを削除してイメージサイズを削減する
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
 # アプリケーションの作業ディレクトリを設定
@@ -39,7 +40,10 @@ COPY . .
 # （ボリュームマウント前に存在しないとパーミッションエラーになる場合がある）
 RUN mkdir -p /videos
 
-# uvicorn で FastAPI アプリを起動する
-# --host 0.0.0.0 : コンテナ外からアクセス可能にする
-# --port 8000    : 内部ポート（docker-compose でマッピングする）
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# エントリポイントスクリプトをコピーして実行権限を付与する
+# dos2unix で CRLF → LF に変換する（Windows 環境でクローンした場合の対策）
+COPY entrypoint.sh /entrypoint.sh
+RUN dos2unix /entrypoint.sh && chmod +x /entrypoint.sh
+
+# entrypoint.sh でマイグレーション適用後に uvicorn を起動する
+CMD ["/entrypoint.sh"]
