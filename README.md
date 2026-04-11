@@ -9,7 +9,8 @@
 このアプリは「製品化」ではなく、動画配信の仕組みを理解するための最小構成を目的とする。
 
 - **認証**: FastAPI の Cookie セッション（パスワード認証）
-- **変換**: ffmpeg により mp4 → HLS（playlist.m3u8 + segment*.ts）
+- **変換**: Worker コンテナが ffmpeg で mp4 → HLS（playlist.m3u8 + segment*.ts）に非同期変換
+- **キュー**: Redis Queue で API から Worker へ変換ジョブを受け渡す
 - **配信**: Nginx による HLS 直接配信 + secure_link_md5 署名検証
 - **保護**: 署名付きURL（1 時間有効）で認証済みユーザのみが視聴可能
 
@@ -38,21 +39,37 @@
 │  /login    ログインページ     │
 │  /upload   アップロード       │
 │  /player/  プレイヤーページ  │
-│  /api/...  認証・変換・署名  │
+│  /api/...  認証・署名・状態  │
 │                               │
-│  ffmpeg: mp4 → HLS 変換      │
 │  SQLAlchemy: DB アクセス      │
-└──────┬──────────┬────────────┘
-       │          │
-       │ Volume   │ PostgreSQL
-       ▼          ▼
+│  redis-py: ジョブ enqueue    │
+└──────┬──────┬────────────────┘
+       │      │
+       │ Vol  │ RPUSH job_id
+       │      ▼
+       │  ┌───────────────────┐
+       │  │   Redis コンテナ   │
+       │  │  split_jobs キュー │
+       │  └────────┬──────────┘
+       │           │ BLPOP
+       │           ▼
+       │  ┌──────────────────────────┐
+       │  │     Worker コンテナ       │
+       │  │                           │
+       │  │  ffmpeg: mp4 → HLS 変換  │
+       │  │  DB: ジョブ状態を UPDATE  │
+       │  └────────┬─────────────────┘
+       │           │ Volume
+       ▼           ▼
 ┌──────────┐  ┌─────────────────────────────┐
 │  /videos  │  │    PostgreSQL コンテナ（db）  │
 │ (共有Vol) │  │                               │
 │           │  │  videos テーブル              │
-│ playlist  │  │  id, title, created_at        │
-│ *.ts ...  │  │                               │
-└──────────┘  └─────────────────────────────┘
+│ input.mp4 │  │  id, title, created_at        │
+│ playlist  │  │                               │
+│ *.ts ...  │  │  jobs テーブル                │
+└──────────┘  │  id, video_id, type, status   │
+              └─────────────────────────────┘
 ```
 
 ---
@@ -147,7 +164,7 @@ segment002.ts
 
 ```
 project/
-├── docker-compose.yml      Docker サービス定義
+├── docker-compose.yml      Docker サービス定義（5コンテナ構成）
 ├── .env.example            環境変数のサンプル（.env にコピーして使う）
 ├── README.md               このファイル
 ├── nginx/
@@ -164,8 +181,15 @@ project/
 │   │   └── versions/       マイグレーションファイル群
 │   └── templates/
 │       ├── login.html      ログインページ
-│       ├── upload.html     アップロードページ
-│       └── player.html     プレイヤーページ（hls.js）
+│       ├── upload.html     アップロードページ（ジョブ状態ポーリング付き）
+│       └── player.html     プレイヤーページ（hls.js・ジョブ状態ポーリング付き）
+├── worker/
+│   ├── Dockerfile          Worker コンテナのビルド定義（ffmpeg 含む）
+│   ├── worker_split.py     Redis Queue 監視・HLS 変換オーケストレーション
+│   ├── jobs/
+│   │   └── split.py        ffmpeg HLS 変換処理
+│   └── utils/
+│       └── db.py           DB アクセスユーティリティ（ジョブ状態 UPDATE）
 └── videos/
     └── （HLS 出力先: docker volume で管理）
 ```
@@ -177,14 +201,15 @@ project/
 | 用途 | 技術 |
 |------|------|
 | バックエンド | FastAPI (Python 3.11) |
-| 動画変換 | ffmpeg（HLS 単一ビットレート） |
+| 動画変換 | ffmpeg（HLS 単一ビットレート、Worker コンテナで非同期実行） |
+| ジョブキュー | Redis 7（split ジョブの非同期受け渡し） |
 | フロントエンド | Jinja2 テンプレート (HTML) |
 | 動画再生 | hls.js |
 | 動画配信 | Nginx + secure_link_md5 |
 | 認証 | FastAPI Cookie セッション (itsdangerous) |
-| データベース | PostgreSQL（動画メタ情報）|
+| データベース | PostgreSQL（動画メタ情報・ジョブ情報）|
 | ORM / マイグレーション | SQLAlchemy 2.x + Alembic |
-| コンテナ | Docker Compose（3コンテナ構成） |
+| コンテナ | Docker Compose（5コンテナ構成: db / redis / api / worker / nginx） |
 
 ---
 
@@ -241,8 +266,8 @@ docker compose up --build
 
 1. `http://localhost/login` でログイン（パスワード: `.env` の `ADMIN_PASSWORD`）
 2. `http://localhost/upload` で mp4 ファイルを選択してアップロード
-3. ffmpeg が HLS に変換後、プレイヤーページにリダイレクト
-4. 動画が再生される
+3. アップロード後すぐに `/player/{id}` にリダイレクトされる（変換は Worker が非同期で実行）
+4. Worker が HLS 変換を完了すると、upload ページ・player ページが自動でポーリングして状態を更新し、動画が再生可能になる
 
 #### 6. コンテナの停止
 
@@ -347,8 +372,9 @@ docker compose logs -f
 | POST | `/api/login` | ログイン処理 | 不要 |
 | GET | `/logout` | ログアウト | 不要 |
 | GET | `/upload` | アップロードページ | 必要 |
-| POST | `/api/upload` | 動画アップロード＆HLS変換 | 必要 |
+| POST | `/api/upload` | 動画アップロード（Worker へ変換ジョブをキューイング） | 必要 |
 | GET | `/player/{id}` | プレイヤーページ | 必要 |
+| GET | `/api/job/{job_id}` | ジョブ状態取得（queued/processing/completed/error） | 必要 |
 | GET | `/api/videos/{id}/url` | 署名付き HLS URL 取得 | 必要 |
 
 ---
@@ -359,15 +385,24 @@ docker compose logs -f
 
 1. ブラウザの開発者ツールのネットワークタブで `/videos/*.m3u8` のレスポンスを確認
 2. 403 が返る場合: SECRET_KEY が FastAPI と Nginx で一致しているか確認
-3. ffmpeg の変換ログを確認: `docker compose logs api`
+3. Worker の変換ログを確認: `docker compose logs worker`
 
 ### ffmpeg の変換が失敗する
 
 mp4 ファイルのコーデックが H.264/AAC でない場合、変換に時間がかかるか失敗することがある。
 
 ```bash
-# コンテナ内でログを確認
-docker compose logs api --tail=50
+# Worker コンテナのログを確認
+docker compose logs worker --tail=50
+```
+
+### ジョブが queued のまま進まない
+
+Worker コンテナが正常に起動しているか確認する。
+
+```bash
+docker compose ps
+docker compose logs worker --tail=50
 ```
 
 ### Nginx の設定確認
