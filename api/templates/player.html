@@ -3,24 +3,20 @@
   player.html - 動画プレイヤーページ
 
   このページは hls.js を使って HLS 形式の動画を再生する。
+  ジョブが completed の場合のみ再生可能。
+  queued / processing の場合は処理中表示を行い、定期的に状態をポーリングする。
 
   再生の仕組み:
-    1. ページロード時に /api/videos/{id}/url を呼び出す
-    2. FastAPI が署名付き HLS URL（?expires=...&md5=...）を返す
+    1. ページロード時にジョブ状態を確認する（job_status テンプレート変数）
+    2. completed なら /api/videos/{id}/url を呼び出して署名付き URL を取得する
     3. hls.js が署名付き URL を使って Nginx から m3u8 プレイリストを取得する
     4. Nginx が secure_link_md5 で署名を検証し、有効なら ts セグメントを配信する
     5. ブラウザで動画が再生される
 
-  セキュリティの仕組み（secure_link_md5）:
-    - 署名は 1 時間有効（expires = 現在時刻 + 3600 秒）
-    - 署名なし・期限切れ・改ざんされた URL は Nginx が 403/410 を返す
-    - つまり認証済みユーザだけが FastAPI 経由で有効な URL を取得できる
-
-  hls.js について:
-    - hls.js は HLS をブラウザのネイティブビデオタグで再生するためのライブラリ
-    - Safari は HLS をネイティブサポートするため hls.js は不要だが、
-      Chrome / Firefox には必要
-    - CDN から読み込む（ローカル開発環境のため）
+  ポーリング:
+    - queued / processing の場合は /api/job/{job_id} を 4 秒ごとにポーリングする
+    - completed になったらプレイヤーを初期化して再生を開始する
+    - error になったらエラーメッセージを表示する
 -->
 <html lang="ja">
 <head>
@@ -91,6 +87,36 @@
       display: block;
     }
 
+    /* 処理中プレースホルダー */
+    #processing-placeholder {
+      width: 100%;
+      max-height: 540px;
+      height: 320px;
+      background: #1a1a1a;
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+      font-size: 1rem;
+      gap: 16px;
+      border: 1px solid #333;
+    }
+
+    #processing-placeholder .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #333;
+      border-top-color: #4499ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
     /* ステータスメッセージ（読み込み中・エラー等） */
     #status {
       margin-top: 16px;
@@ -147,16 +173,22 @@
     <!-- 動画タイトル -->
     <h2>{{ title }}</h2>
 
+    <!-- 処理中プレースホルダー（queued / processing 時に表示） -->
+    <div id="processing-placeholder" style="display: none;">
+      <div class="spinner"></div>
+      <span id="processing-label">処理中...</span>
+    </div>
+
     <!--
       HTML5 video タグ
       hls.js がこの要素に HLS ストリームを接続する
       controls: ブラウザ標準のコントロールバーを表示する
       autoplay:  ページロード後に自動再生する
     -->
-    <video id="video-player" controls autoplay></video>
+    <video id="video-player" controls autoplay style="display: none;"></video>
 
     <!-- 読み込みステータスの表示エリア -->
-    <p id="status">⏳ 署名付き URL を取得中...</p>
+    <p id="status">⏳ 状態を確認中...</p>
 
     <!-- 開発用デバッグ情報（HLS URL を表示する） -->
     <div class="debug-info">
@@ -178,34 +210,42 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
   <script>
+    // このページの動画 ID と初期ジョブ情報（Jinja2 テンプレートから埋め込まれる）
+    const videoId = "{{ video_id }}";
+    const jobId = "{{ job_id or '' }}";
+    let currentJobStatus = "{{ job_status }}";
+
+    const videoEl = document.getElementById("video-player");
+    const statusEl = document.getElementById("status");
+    const hlsUrlEl = document.getElementById("hls-url");
+    const placeholderEl = document.getElementById("processing-placeholder");
+    const processingLabelEl = document.getElementById("processing-label");
+
     /**
-     * プレイヤーの初期化処理
-     *
-     * 手順:
-     *   1. /api/videos/{id}/url を呼び出して署名付き URL を取得する
-     *   2. hls.js が利用可能なら hls.js で再生する
-     *   3. hls.js が不要（Safari など）なら video.src に直接セットする
+     * ステータスメッセージを更新する
      */
-    (async function initPlayer() {
-      // このページの動画 ID（Jinja2 テンプレートから埋め込まれる）
-      const videoId = "{{ video_id }}";
-      const videoEl = document.getElementById("video-player");
-      const statusEl = document.getElementById("status");
-      const hlsUrlEl = document.getElementById("hls-url");
+    function setStatus(message, isError = false) {
+      statusEl.textContent = message;
+      statusEl.className = isError ? "error" : "";
+    }
 
-      /**
-       * ステータスメッセージを更新する
-       * @param {string} message - 表示するメッセージ
-       * @param {boolean} isError - エラーメッセージかどうか
-       */
-      function setStatus(message, isError = false) {
-        statusEl.textContent = message;
-        statusEl.className = isError ? "error" : "";
-      }
+    /**
+     * 処理中プレースホルダーを表示する
+     */
+    function showProcessing(label) {
+      processingLabelEl.textContent = label;
+      placeholderEl.style.display = "flex";
+      videoEl.style.display = "none";
+    }
 
-      // ステップ 1: FastAPI から署名付き HLS URL を取得する
-      // /api/videos/{id}/url エンドポイントが
-      // {"url": "/videos/{id}/playlist.m3u8?expires=...&md5=..."} を返す
+    /**
+     * プレイヤーを表示して HLS 再生を開始する
+     */
+    async function startPlayer() {
+      placeholderEl.style.display = "none";
+      videoEl.style.display = "block";
+
+      // FastAPI から署名付き HLS URL を取得する
       let hlsUrl;
       try {
         const response = await fetch(`/api/videos/${videoId}/url`);
@@ -214,73 +254,45 @@
         }
         const data = await response.json();
         hlsUrl = data.url;
-
-        // デバッグ用に URL を表示する
         hlsUrlEl.textContent = hlsUrl;
       } catch (err) {
         setStatus(`エラー: ${err.message}`, true);
         return;
       }
 
-      // ステップ 2: hls.js を使って動画を再生する
+      // hls.js を使って動画を再生する
       if (Hls.isSupported()) {
-        /*
-         * hls.js が利用可能（Chrome, Firefox など）の場合
-         *
-         * Hls.loadSource() で m3u8 プレイリストを読み込み、
-         * Hls.attachMedia() で video 要素に接続する。
-         * ts セグメントの取得は hls.js が自動的に行う。
-         */
         const hls = new Hls({
-          // デバッグモード（開発用）: 本番では false にすること
           debug: false,
-          // セグメントの先読み数（少なめにしてレイテンシを下げる）
           maxBufferLength: 30,
         });
-
-        // HLS プレイリストを読み込む（署名付き URL）
         hls.loadSource(hlsUrl);
-
-        // video 要素に接続する
         hls.attachMedia(videoEl);
-
-        // MANIFEST_PARSED: プレイリストのパース完了イベント
         hls.on(Hls.Events.MANIFEST_PARSED, function () {
           setStatus("▶ 再生中");
-          videoEl.play().catch(function (err) {
-            // 自動再生がブロックされた場合（ブラウザポリシー）はそのまま表示する
+          videoEl.play().catch(function () {
             setStatus("クリックで再生してください");
           });
         });
-
-        // エラーハンドリング
         hls.on(Hls.Events.ERROR, function (event, data) {
           if (data.fatal) {
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
-                // ネットワークエラー: 再接続を試みる
                 setStatus("ネットワークエラーが発生しました。再接続中...", true);
                 hls.startLoad();
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
-                // メディアエラー: メディア回復を試みる
                 setStatus("メディアエラーが発生しました。回復を試みています...", true);
                 hls.recoverMediaError();
                 break;
               default:
-                // 致命的なエラー: 再生を停止する
                 setStatus(`再生エラー: ${data.type}`, true);
                 hls.destroy();
                 break;
             }
           }
         });
-
       } else if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
-        /*
-         * Safari など HLS をネイティブサポートするブラウザの場合
-         * video.src に直接 HLS URL をセットするだけで再生できる
-         */
         videoEl.src = hlsUrl;
         videoEl.addEventListener("loadedmetadata", function () {
           setStatus("▶ 再生中");
@@ -291,10 +303,73 @@
         videoEl.addEventListener("error", function () {
           setStatus("動画の読み込みに失敗しました", true);
         });
-
       } else {
-        // HLS に対応していないブラウザ
         setStatus("このブラウザは HLS の再生に対応していません", true);
+      }
+    }
+
+    /**
+     * /api/job/{job_id} をポーリングしてジョブ状態を確認する
+     * completed になったら再生を開始する
+     * error になったらエラーを表示する
+     */
+    async function pollJobStatus() {
+      if (!jobId) {
+        // ジョブが存在しない場合（移行前の既存動画）はそのまま再生する
+        await startPlayer();
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/job/${jobId}`);
+        if (!response.ok) {
+          setStatus("ジョブ状態の取得に失敗しました", true);
+          return;
+        }
+        const data = await response.json();
+        currentJobStatus = data.status;
+      } catch (err) {
+        setStatus(`エラー: ${err.message}`, true);
+        return;
+      }
+
+      if (currentJobStatus === "completed") {
+        setStatus("");
+        await startPlayer();
+      } else if (currentJobStatus === "error") {
+        placeholderEl.style.display = "none";
+        setStatus("動画の処理中にエラーが発生しました。", true);
+      } else if (currentJobStatus === "processing") {
+        showProcessing("処理中...");
+        setStatus("動画を変換中です。しばらくお待ちください...");
+        // 4 秒後に再度ポーリングする
+        setTimeout(pollJobStatus, 4000);
+      } else {
+        // queued
+        showProcessing("処理待ち...");
+        setStatus("処理待ちです。しばらくお待ちください...");
+        setTimeout(pollJobStatus, 4000);
+      }
+    }
+
+    // 初期状態に応じて処理を分岐する
+    (async function init() {
+      if (currentJobStatus === "completed") {
+        // すでに完了している場合はそのまま再生する
+        setStatus("");
+        await startPlayer();
+      } else if (currentJobStatus === "error") {
+        placeholderEl.style.display = "none";
+        setStatus("動画の処理中にエラーが発生しました。", true);
+      } else if (currentJobStatus === "processing") {
+        showProcessing("処理中...");
+        setStatus("動画を変換中です。しばらくお待ちください...");
+        setTimeout(pollJobStatus, 4000);
+      } else {
+        // queued またはその他
+        showProcessing("処理待ち...");
+        setStatus("処理待ちです。しばらくお待ちください...");
+        setTimeout(pollJobStatus, 4000);
       }
     })();
   </script>

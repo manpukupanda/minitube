@@ -5,8 +5,8 @@
 #   - 軽量な Debian ベースのイメージを使用する
 #
 # インストール内容:
-#   - ffmpeg: mp4 → HLS 変換に使用
 #   - pip パッケージ: requirements.txt に記載のとおり
+#   - ffmpeg は Worker コンテナにインストールする（API コンテナには不要）
 #
 # 起動コマンド:
 #   - entrypoint.sh が Alembic マイグレーションを適用してから
@@ -18,11 +18,9 @@ FROM python:3.11-slim
 # ビルド時のログを即時出力するために標準出力バッファを無効化する
 ENV PYTHONUNBUFFERED=1
 
-# システムパッケージのアップデートと ffmpeg のインストール
-# ffmpeg は mp4 → HLS（playlist.m3u8 + segment*.ts）変換に必要
-# インストール後にキャッシュを削除してイメージサイズを削減する
+# システムパッケージのアップデート
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg dos2unix \
+    && apt-get install -y --no-install-recommends dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
 # アプリケーションの作業ディレクトリを設定
