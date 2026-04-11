@@ -298,7 +298,8 @@
         </thead>
         <tbody>
           {% for video in videos %}
-          <tr>
+          <!-- data-job-id と data-status を付与してポーリングに使用する -->
+          <tr data-job-id="{{ video.job_id or '' }}" data-status="{{ video.status }}">
             <td>{{ video.title }}</td>
             <!-- UNIX タイムスタンプを JavaScript で表示変換する -->
             <td class="ts" data-ts="{{ video.created_at }}">{{ video.created_at }}</td>
@@ -362,6 +363,95 @@
         el.textContent = new Date(ts * 1000).toLocaleString("ja-JP");
       }
     });
+
+    /**
+     * ジョブ状態バッジと操作リンクを更新する
+     * @param {HTMLElement} row - 対象の <tr> 要素
+     * @param {string} status   - 新しい状態（queued/processing/completed/error）
+     */
+    function updateRowStatus(row, status) {
+      const statusMap = {
+        queued:     { cls: "status-queued",     label: "処理待ち" },
+        processing: { cls: "status-processing", label: "処理中" },
+        completed:  { cls: "status-completed",  label: "再生可能" },
+        error:      { cls: "status-error",      label: "エラー" },
+      };
+      const info = statusMap[status] || statusMap["error"];
+
+      // バッジを更新する
+      const badge = row.querySelector(".status-badge");
+      if (badge) {
+        badge.className = "status-badge " + info.cls;
+        badge.textContent = info.label;
+      }
+
+      // 操作リンクを更新する
+      const link = row.querySelector("td:last-child a");
+      if (link) {
+        if (status === "completed") {
+          link.classList.remove("disabled");
+          link.textContent = "再生する ▶";
+        } else {
+          link.classList.add("disabled");
+          link.textContent = "再生不可";
+        }
+      }
+
+      row.setAttribute("data-status", status);
+    }
+
+    /**
+     * queued / processing 状態の行を 4 秒ごとにポーリングして状態を更新する
+     * completed または error になった行はポーリング対象から除外する
+     */
+    (function startPolling() {
+      // ポーリング対象の行を収集する（queued または processing のもの）
+      const pendingRows = Array.from(
+        document.querySelectorAll("tr[data-job-id][data-status]")
+      ).filter(function (row) {
+        const s = row.getAttribute("data-status");
+        return s === "queued" || s === "processing";
+      });
+
+      if (pendingRows.length === 0) {
+        return; // ポーリング不要
+      }
+
+      // 残りポーリング対象を管理するセット
+      const remaining = new Set(pendingRows);
+
+      async function poll() {
+        const toCheck = Array.from(remaining);
+        await Promise.all(toCheck.map(async function (row) {
+          const jobId = row.getAttribute("data-job-id");
+          if (!jobId) {
+            remaining.delete(row);
+            return;
+          }
+          try {
+            const res = await fetch("/api/job/" + jobId);
+            if (!res.ok) return;
+            const data = await res.json();
+            const newStatus = data.status;
+            if (newStatus !== row.getAttribute("data-status")) {
+              updateRowStatus(row, newStatus);
+            }
+            if (newStatus === "completed" || newStatus === "error") {
+              remaining.delete(row);
+            }
+          } catch (_) {
+            // ネットワークエラー時は次のサイクルで再試行する
+          }
+        }));
+
+        if (remaining.size > 0) {
+          setTimeout(poll, 4000);
+        }
+      }
+
+      // 初回ポーリングを 4 秒後に開始する
+      setTimeout(poll, 4000);
+    })();
   </script>
 </body>
 </html>
