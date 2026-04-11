@@ -2,14 +2,16 @@
 # minitube - 最小構成の動画配信アプリ
 #
 # コンテナ構成：
-#   db    ... PostgreSQL（動画メタ情報の永続化）
-#   api   ... FastAPI（認証・アップロード・署名URL生成）
-#   nginx ... Nginx（HLS 配信 + secure_link_md5 署名検証）
+#   db     ... PostgreSQL（動画メタ情報・ジョブ情報の永続化）
+#   redis  ... Redis（split ジョブキュー）
+#   api    ... FastAPI（認証・アップロード・署名URL生成・ジョブ状態参照）
+#   worker ... Worker（Redis Queue 監視・ffmpeg HLS 変換）
+#   nginx  ... Nginx（HLS 配信 + secure_link_md5 署名検証）
 #
-# /videos ディレクトリを api/nginx コンテナで共有し、
-# FastAPI が ffmpeg で変換した HLS ファイルを
+# /videos ディレクトリを api/worker/nginx コンテナで共有し、
+# API が受け取った mp4 を Worker が ffmpeg で HLS に変換して
 # Nginx が直接配信する。
-# 動画メタ情報は PostgreSQL（db コンテナ）に保存し、
+# 動画メタ情報とジョブ情報は PostgreSQL（db コンテナ）に保存し、
 # Alembic でスキーマを管理する。
 #
 # SECRET_KEY の設定方法：
@@ -20,7 +22,8 @@
 services:
   # ----------------------------------------------------------
   # PostgreSQL コンテナ
-  # 動画メタ情報（id, title, created_at）を永続化する。
+  # 動画メタ情報（id, title, created_at）と
+  # ジョブ情報（id, video_id, type, status 等）を永続化する。
   # postgres_data ボリュームにデータを保存し、
   # コンテナ再作成後もデータが保持される。
   # ----------------------------------------------------------
@@ -41,9 +44,25 @@ services:
       retries: 5
 
   # ----------------------------------------------------------
+  # Redis コンテナ
+  # split ジョブのキューとして使用する。
+  # API が job_id を enqueue し、Worker が BLPOP で受け取る。
+  # ----------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: minitube_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------
   # FastAPI コンテナ
   # ポート 8000 でリッスンし、認証・アップロード・
-  # 署名付きURL生成を担当する。
+  # 署名付きURL生成・ジョブ状態参照を担当する。
+  # HLS 変換は Worker コンテナに委譲する（ffmpeg は Worker に入れる）。
   # ----------------------------------------------------------
   api:
     build:
@@ -61,13 +80,43 @@ services:
       # DATABASE_URL は PostgreSQL への接続文字列
       # db サービスのホスト名・認証情報と一致させること
       - DATABASE_URL=postgresql://${POSTGRES_USER:-minitube}:${POSTGRES_PASSWORD:-changeme_replace_in_production}@db/${POSTGRES_DB:-minitube}
+      # REDIS_URL は Redis への接続文字列
+      - REDIS_URL=redis://redis:6379/0
     volumes:
-      # /videos を api コンテナにマウントし、ffmpeg の出力先とする
+      # /videos を api コンテナにマウントし、アップロードファイルの保存先とする
       - videos_data:/videos
     ports:
       - "8000:8000"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Worker コンテナ
+  # Redis Queue を常時監視し、split ジョブを処理する。
+  # ffmpeg による HLS 変換を担当する。
+  # API コンテナとは別コンテナで動作し、videos_data を共有する。
+  # ----------------------------------------------------------
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: minitube_worker
+    environment:
+      # DATABASE_URL は PostgreSQL への接続文字列
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-minitube}:${POSTGRES_PASSWORD:-changeme_replace_in_production}@db/${POSTGRES_DB:-minitube}
+      # REDIS_URL は Redis への接続文字列
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      # /videos を worker コンテナにもマウントし、HLS 変換の入出力先とする
+      - videos_data:/videos
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
@@ -107,7 +156,7 @@ services:
 
 # ----------------------------------------------------------
 # ボリューム定義
-# videos_data: FastAPI（書き込み）と Nginx（読み取り）で共有する
+# videos_data: FastAPI（書き込み）・Worker（読み書き）・Nginx（読み取り）で共有する
 # ----------------------------------------------------------
 volumes:
   videos_data:
