@@ -16,7 +16,8 @@ _ID_LENGTH = 11
 
 def generate_base62_id() -> str:
     """64bit ランダム値を Base62 エンコードした 11 文字固定の ID を返す。"""
-    value = secrets.randbits(64)
+    # 0 は実質起こらないが、安全のため 0 を除いた範囲でサンプリングする
+    value = secrets.randbelow(2**64 - 1) + 1
     chars: list[str] = []
 
     while value > 0:
