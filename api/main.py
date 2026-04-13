@@ -52,6 +52,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import secrets
 import shutil
 import time
@@ -182,6 +183,18 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# UUID 形式の検証パターン
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+
+
+def _is_valid_uuid(value: str) -> bool:
+    """文字列が UUID v4 形式かどうかを検証する。パストラバーサル攻撃を防ぐ。"""
+    return bool(_UUID_RE.match(value))
 
 
 # ==============================================================
@@ -986,17 +999,19 @@ async def video_edit_page(
     db: Session = Depends(get_db),
 ):
     """動画編集ページ（オーナーまたは Admin のみ）。"""
+    if not _is_valid_uuid(video_id):
+        return HTMLResponse(content="<h1>400 - 無効な動画 ID です</h1>", status_code=400)
     current_user = require_login(request)
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         return HTMLResponse(content="<h1>404 - 動画が見つかりません</h1>", status_code=404)
     if "admin" not in current_user["roles"] and video.owner_user_id != current_user["user_id"]:
         raise Forbidden()
-    job = db.query(Job).filter(Job.video_id == video_id, Job.type == "split").first()
+    job = db.query(Job).filter(Job.video_id == video.id, Job.type == "split").first()
     job_id = job.id if job else None
     all_categories = db.query(Category).order_by(Category.name).all()
     permissions = []
-    perms = db.query(VideoPermission).filter(VideoPermission.video_id == video_id).all()
+    perms = db.query(VideoPermission).filter(VideoPermission.video_id == video.id).all()
     for p in perms:
         u = db.query(User).filter(User.id == p.user_id).first()
         if u:
@@ -1005,7 +1020,7 @@ async def video_edit_page(
         request,
         "video_edit.html",
         {
-            "video_id": video_id,
+            "video_id": video.id,
             "title": video.title,
             "description": video.description or "",
             "category_id": video.category_id or "",
@@ -1031,6 +1046,8 @@ async def api_video_update(
     db: Session = Depends(get_db),
 ):
     """動画メタ情報を更新する（オーナーまたは Admin のみ）。"""
+    if not _is_valid_uuid(video_id):
+        return JSONResponse({"error": "invalid video_id"}, status_code=400)
     current_user = require_login(request)
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
@@ -1039,13 +1056,17 @@ async def api_video_update(
         raise Forbidden()
     if visibility not in ("public", "private"):
         visibility = "public"
-    video.title = title.strip() or video.title
+    title = title.strip()
+    safe_id = video.id  # DB から取得した値を使用（パストラバーサル対策）
+    if not title:
+        return RedirectResponse(url=f"/videos/{safe_id}/edit?error=empty_title", status_code=303)
+    video.title = title
     video.description = description.strip() or None
     video.category_id = category_id.strip() or None
     video.visibility = visibility
     video.updated_at = int(time.time())
     db.commit()
-    return RedirectResponse(url=f"/videos/{video_id}/edit", status_code=303)
+    return RedirectResponse(url=f"/videos/{safe_id}/edit", status_code=303)
 
 
 @app.post("/api/videos/{video_id}/delete")
@@ -1055,6 +1076,8 @@ async def api_video_delete(
     db: Session = Depends(get_db),
 ):
     """動画を削除する（オーナーまたは Admin のみ）。HLS も削除する。"""
+    if not _is_valid_uuid(video_id):
+        return JSONResponse({"error": "invalid video_id"}, status_code=400)
     current_user = require_login(request)
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
@@ -1062,15 +1085,15 @@ async def api_video_delete(
     if "admin" not in current_user["roles"] and video.owner_user_id != current_user["user_id"]:
         raise Forbidden()
     # MinIO から HLS を削除する
-    _delete_hls_from_minio(video_id)
+    _delete_hls_from_minio(video.id)
     # input.mp4 が残っている場合はローカルからも削除する
-    local_dir = os.path.join(VIDEOS_DIR, video_id)
+    local_dir = os.path.join(VIDEOS_DIR, video.id)
     if os.path.exists(local_dir):
         shutil.rmtree(local_dir, ignore_errors=True)
     # VideoPermission を削除する
-    db.query(VideoPermission).filter(VideoPermission.video_id == video_id).delete()
+    db.query(VideoPermission).filter(VideoPermission.video_id == video.id).delete()
     # Job を削除する
-    db.query(Job).filter(Job.video_id == video_id).delete()
+    db.query(Job).filter(Job.video_id == video.id).delete()
     # Video を削除する
     db.delete(video)
     db.commit()
@@ -1085,6 +1108,8 @@ async def api_video_replace(
     db: Session = Depends(get_db),
 ):
     """動画ファイルを差し替える（video_id は変わらない）。HLS を再生成する。"""
+    if not _is_valid_uuid(video_id):
+        return JSONResponse({"error": "invalid video_id"}, status_code=400)
     current_user = require_login(request)
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
@@ -1092,16 +1117,17 @@ async def api_video_replace(
     if "admin" not in current_user["roles"] and video.owner_user_id != current_user["user_id"]:
         raise Forbidden()
     now = int(time.time())
+    safe_id = video.id  # DB から取得した値を使用（パストラバーサル対策）
     # 古い HLS を MinIO から削除する
-    _delete_hls_from_minio(video_id)
+    _delete_hls_from_minio(safe_id)
     # 新しい input.mp4 を保存する
-    output_dir = os.path.join(VIDEOS_DIR, video_id)
+    output_dir = os.path.join(VIDEOS_DIR, safe_id)
     os.makedirs(output_dir, exist_ok=True)
     input_path = os.path.join(output_dir, "input.mp4")
     with open(input_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     # 既存の split ジョブを再利用（ステータスをリセット）またはレコードを作成する
-    job = db.query(Job).filter(Job.video_id == video_id, Job.type == "split").first()
+    job = db.query(Job).filter(Job.video_id == safe_id, Job.type == "split").first()
     if job:
         job.status = "queued"
         job.error_message = None
@@ -1109,7 +1135,7 @@ async def api_video_replace(
     else:
         job = Job(
             id=str(uuid.uuid4()),
-            video_id=video_id,
+            video_id=safe_id,
             type="split",
             status="queued",
             error_message=None,
@@ -1121,5 +1147,5 @@ async def api_video_replace(
     video.updated_at = now
     db.commit()
     redis_client.rpush(SPLIT_QUEUE, job.id)
-    return RedirectResponse(url=f"/videos/{video_id}/edit", status_code=303)
+    return RedirectResponse(url=f"/videos/{safe_id}/edit", status_code=303)
 

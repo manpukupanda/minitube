@@ -543,9 +543,9 @@
           if (jobStatus === "completed") {
             currentStatus = "ready";
             updateStatusBadge("ready");
-            // プレイヤーリンクを追加する
-            const badge = document.getElementById("status-badge");
-            if (badge && !badge.nextElementSibling) {
+            // プレイヤーリンクを追加する（重複防止）
+            if (!document.querySelector('.player-link')) {
+              const badge = document.getElementById("status-badge");
               const link = document.createElement("a");
               link.href = "/player/" + videoId;
               link.className = "player-link";
