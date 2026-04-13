@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <!--
-  login.html - ログインページ
+  register.html - ユーザ登録ページ
 
-  メールアドレスとパスワードでログインするフォームを表示する。
-  フォームの送信先は /api/login (POST)。
-  認証成功後は /videos にリダイレクトされる。
+  新規ユーザがメールアドレスとパスワードで登録するフォームを表示する。
+  フォームの送信先は /api/register (POST)。
+  登録成功後は /login にリダイレクトされる。
 -->
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ログイン - minitube</title>
+  <title>新規登録 - minitube</title>
   <style>
     * {
       box-sizing: border-box;
@@ -28,7 +28,7 @@
       justify-content: center;
     }
 
-    .login-card {
+    .register-card {
       background: #1a1a1a;
       border: 1px solid #333;
       border-radius: 8px;
@@ -38,13 +38,13 @@
       box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
     }
 
-    .login-card h1 {
+    .register-card h1 {
       font-size: 1.8rem;
       margin-bottom: 8px;
       color: #ff4444;
     }
 
-    .login-card p.subtitle {
+    .register-card p.subtitle {
       color: #888;
       font-size: 0.9rem;
       margin-bottom: 28px;
@@ -104,35 +104,39 @@
       background: #cc2222;
     }
 
-    .register-link {
+    .login-link {
       margin-top: 20px;
       text-align: center;
       font-size: 0.85rem;
       color: #888;
     }
 
-    .register-link a {
+    .login-link a {
       color: #ff4444;
       text-decoration: none;
     }
 
-    .register-link a:hover {
+    .login-link a:hover {
       text-decoration: underline;
     }
   </style>
 </head>
 <body>
-  <div class="login-card">
+  <div class="register-card">
     <h1>▶ minitube</h1>
-    <p class="subtitle">動画配信システム - ログイン</p>
+    <p class="subtitle">新規アカウント登録</p>
 
-    {% if error %}
+    {% if error == "already_exists" %}
     <div class="error-message">
-      メールアドレスまたはパスワードが正しくありません。再度お試しください。
+      このメールアドレスはすでに登録されています。
+    </div>
+    {% elif error %}
+    <div class="error-message">
+      登録中にエラーが発生しました。再度お試しください。
     </div>
     {% endif %}
 
-    <form action="/api/login" method="post" enctype="application/x-www-form-urlencoded">
+    <form action="/api/register" method="post" enctype="application/x-www-form-urlencoded">
       <label for="email">メールアドレス</label>
       <input
         type="email"
@@ -149,12 +153,13 @@
         name="password"
         placeholder="パスワードを入力"
         required
+        minlength="8"
       />
-      <button type="submit">ログイン</button>
+      <button type="submit">登録する</button>
     </form>
 
-    <p class="register-link">
-      アカウントをお持ちでない方は <a href="/register">新規登録</a>
+    <p class="login-link">
+      すでにアカウントをお持ちの方は <a href="/login">ログイン</a>
     </p>
   </div>
 </body>

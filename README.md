@@ -1,6 +1,6 @@
 # minitube
 
-最小構成の動画配信 Web アプリ。mp4 をアップロードすると HLS に変換し、認証済みユーザだけがブラウザで再生できる。
+最小構成の動画配信 Web アプリ。mp4 をアップロードすると HLS に変換し、RBAC によるロールベースのアクセス制御で動画の公開・非公開を管理できる。
 
 ---
 
@@ -8,12 +8,42 @@
 
 このアプリは「製品化」ではなく、動画配信の仕組みを理解するための最小構成を目的とする。
 
-- **認証**: FastAPI の Cookie セッション（パスワード認証）
+- **認証**: FastAPI の Cookie セッション（メールアドレス + bcrypt パスワード認証）
+- **RBAC**: admin / uploader / viewer の 3 ロールによるアクセス制御
 - **変換**: Worker コンテナが ffmpeg で mp4 → HLS（playlist.m3u8 + segment*.ts）に非同期変換
 - **キュー**: Redis Queue で API から Worker へ変換ジョブを受け渡す
 - **保存**: Worker が変換後の HLS ファイルを **MinIO**（S3 互換オブジェクトストレージ）に永続保存
 - **配信**: Nginx が secure_link_md5 検証後に **MinIO へ直接 proxy_pass**（proxy_cache 付き）
-- **保護**: 署名付きURL（1 時間有効）で認証済みユーザのみが視聴可能
+- **保護**: 署名付きURL（1 時間有効）。公開動画は未ログインでも視聴可能。非公開動画は権限保有者のみ視聴可能
+
+---
+
+## ユーザ管理・RBAC 仕様
+
+### ロール
+
+| ロール | 説明 |
+|--------|------|
+| `admin` | 全機能にアクセス可能。ユーザ管理・全動画管理 |
+| `uploader` | 動画のアップロードが可能 |
+| `viewer` | 動画の視聴のみ可能（新規登録ユーザはこのロール） |
+
+### 動画の公開設定
+
+| 設定 | 説明 |
+|------|------|
+| `public` | 未ログインを含む全員が視聴可能 |
+| `private` | admin・オーナー・権限付与されたユーザのみ視聴可能 |
+
+### 初期管理者ユーザ
+
+起動時に `admin@example.com` ユーザが自動作成される（`INITIAL_ADMIN_PASSWORD` 環境変数で設定）。
+パスワードは初回起動時のみ設定され、再起動時には更新されない（冪等性）。
+
+### VideoPermission（動画視聴権限）
+
+非公開動画に対して、admin またはオーナーが特定ユーザに視聴権限を付与できる。
+プレイヤーページ（`/player/{id}`）の権限管理セクションから操作可能。
 
 ---
 
@@ -356,8 +386,9 @@ cp .env.example .env
 # セッション・署名用シークレット（必須: 強固な値に変更すること）
 SECRET_KEY=your_strong_secret_key_here_change_this
 
-# 管理者パスワード
-ADMIN_PASSWORD=your_password_here
+# 初期管理者パスワード（初回起動時に admin@example.com ユーザに設定）
+# 再起動時には更新されない
+INITIAL_ADMIN_PASSWORD=your_admin_password_here
 
 # PostgreSQL 接続情報
 POSTGRES_DB=minitube
@@ -384,12 +415,19 @@ docker compose up --build
 3. `api`（FastAPI）と `worker` が起動する
 4. `nginx` が起動する
 
+起動時に `api` コンテナが自動で以下を実行する（冪等）:
+- `admin` / `uploader` / `viewer` ロールを作成
+- `admin@example.com` ユーザを作成（パスワード: `INITIAL_ADMIN_PASSWORD`）
+- `admin@example.com` に `admin` ロールを付与
+
 #### 4. アクセス
 
 ブラウザで `http://localhost` を開く。
 
+- 動画一覧ページ: `http://localhost/videos`（未ログインでも公開動画を閲覧可）
 - ログインページ: `http://localhost/login`
-- アップロードページ: `http://localhost/upload`（要ログイン）
+- 新規登録ページ: `http://localhost/register`
+- アップロードページ: `http://localhost/upload`（uploader または admin ロール必須）
 
 #### 5. MinIO コンソールの確認
 
@@ -404,12 +442,24 @@ http://localhost:9001
 
 動画のアップロード・変換完了後、バケット（`minitube`）の `hls/` プレフィックス下にファイルが保存されているはず。
 
-#### 6. 動画のアップロード
+#### 6. UI の使い方
 
-1. `http://localhost/login` でログイン（パスワード: `.env` の `ADMIN_PASSWORD`）
-2. `http://localhost/upload` で mp4 ファイルを選択してアップロード
-3. アップロード後すぐに `/player/{id}` にリダイレクトされる（変換は Worker が非同期で実行）
-4. Worker が HLS 変換と MinIO アップロードを完了すると、upload ページ・player ページが自動でポーリングして状態を更新し、動画が再生可能になる
+**管理者 (admin@example.com) として:**
+1. `http://localhost/login` でメールアドレスとパスワードを入力してログイン
+2. 動画一覧 `/videos` が表示される
+3. `/upload` でアップロードページへ（mp4 を選択し公開設定を選択してアップロード）
+4. `/admin/users` でユーザ一覧と各ユーザのロール管理
+
+**新規ユーザの登録:**
+1. `/register` でメールアドレス・パスワードを入力して登録（自動的に `viewer` ロール付与）
+2. `/login` でログイン
+3. `viewer` ロールでは動画視聴のみ可能（アップロード不可）
+4. 管理者が `/admin/users` から `uploader` ロールを付与すると動画アップロードが可能になる
+
+**非公開動画の視聴権限付与:**
+1. 非公開動画のプレイヤーページ（`/player/{id}`）を開く
+2. 権限管理セクション（admin またはオーナーのみ表示）にメールアドレスを入力して「権限付与」
+3. 付与したユーザはその動画をログイン後に視聴可能になる
 
 #### 7. コンテナの停止
 
@@ -442,7 +492,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 ```bash
 export SECRET_KEY="上記で生成した値"
-export ADMIN_PASSWORD="強固なパスワード"
+export INITIAL_ADMIN_PASSWORD="強固なパスワード"
 export POSTGRES_PASSWORD="強固なパスワード"
 export POSTGRES_USER="minitube"
 export POSTGRES_DB="minitube"
@@ -494,7 +544,7 @@ git pull origin main
 
 # 環境変数を設定
 export SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-export ADMIN_PASSWORD="your_production_password"
+export INITIAL_ADMIN_PASSWORD="your_admin_password"
 export POSTGRES_PASSWORD="your_strong_db_password"
 export POSTGRES_USER="minitube"
 export POSTGRES_DB="minitube"

@@ -164,8 +164,20 @@
   <header>
     <h1>▶ minitube</h1>
     <nav>
-      <a href="/upload">アップロード</a>
-      <a href="/logout">ログアウト</a>
+      <a href="/videos">動画一覧</a>
+      {% if current_user %}
+        {% if is_admin or (current_user["roles"] and ("uploader" in current_user["roles"] or "admin" in current_user["roles"])) %}
+        <a href="/upload">アップロード</a>
+        {% endif %}
+        {% if is_admin %}
+        <a href="/admin/users">ユーザ管理</a>
+        {% endif %}
+        <a href="/profile">プロフィール</a>
+        <a href="/logout">ログアウト</a>
+      {% else %}
+        <a href="/login">ログイン</a>
+        <a href="/register">新規登録</a>
+      {% endif %}
     </nav>
   </header>
 
@@ -193,10 +205,57 @@
     <!-- 開発用デバッグ情報（HLS URL を表示する） -->
     <div class="debug-info">
       <strong>動画 ID:</strong> {{ video_id }}<br />
+      <strong>公開設定:</strong> {% if visibility == "public" %}<span style="color:#66dd66;">公開</span>{% else %}<span style="color:#ddaa44;">非公開</span>{% endif %}<br />
       <strong>HLS URL:</strong> <span id="hls-url">取得中...</span>
     </div>
 
-    <a href="/upload" class="back-link">← アップロード一覧に戻る</a>
+    <!-- 視聴権限管理（admin またはオーナーのみ表示） -->
+    {% if can_manage and visibility == "private" %}
+    <div class="debug-info" style="margin-top: 16px;">
+      <strong style="color: #ccc;">視聴権限管理</strong>
+      <div style="margin-top: 12px;">
+        <form action="/api/admin/videos/{{ video_id }}/permissions" method="post"
+              style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px;">
+          <input
+            type="email"
+            name="email"
+            placeholder="ユーザのメールアドレス"
+            required
+            style="flex: 1; padding: 6px 10px; background: #2a2a2a; border: 1px solid #444;
+                   border-radius: 4px; color: #e0e0e0; font-size: 0.85rem; outline: none;"
+          />
+          <button type="submit"
+                  style="padding: 6px 14px; background: #333; color: #aaa; border: 1px solid #555;
+                         border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
+            権限付与
+          </button>
+        </form>
+        {% if permissions %}
+        <ul style="list-style: none; padding: 0; margin: 0;">
+          {% for perm in permissions %}
+          <li style="display: flex; align-items: center; justify-content: space-between;
+                     padding: 6px 0; border-bottom: 1px solid #2a2a2a; font-size: 0.85rem;">
+            <span style="color: #ccc;">{{ perm.email }}</span>
+            <form action="/api/admin/videos/{{ video_id }}/permissions/{{ perm.user_id }}/delete"
+                  method="post" style="display: inline;">
+              <button type="submit"
+                      style="padding: 2px 10px; background: rgba(255,68,68,0.15);
+                             color: #ff6666; border: 1px solid #ff4444; border-radius: 4px;
+                             cursor: pointer; font-size: 0.75rem;">
+                削除
+              </button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p style="color: #555; font-size: 0.85rem;">視聴権限を持つユーザはいません。</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <a href="/videos" class="back-link">← 動画一覧に戻る</a>
   </div>
 
   <!--

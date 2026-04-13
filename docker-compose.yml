@@ -133,9 +133,9 @@ services:
       # 本番環境では .env ファイルや Docker secrets を使い、
       # この値を変更すること。
       - SECRET_KEY=${SECRET_KEY:-changeme_replace_in_production}
-      # ADMIN_PASSWORD は /api/login で使用するパスワード
-      # 本番環境では必ず変更すること
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      # INITIAL_ADMIN_PASSWORD は初回起動時に admin@example.com ユーザに設定するパスワード
+      # 再起動時には更新されない（初回のみ有効）。本番環境では必ず変更すること
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-changeme_admin_password}
       # DATABASE_URL は PostgreSQL への接続文字列
       # db サービスのホスト名・認証情報と一致させること
       - DATABASE_URL=postgresql://${POSTGRES_USER:-minitube}:${POSTGRES_PASSWORD:-changeme_replace_in_production}@db/${POSTGRES_DB:-minitube}
