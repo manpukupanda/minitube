@@ -2,15 +2,16 @@
 # minitube - 最小構成の動画配信アプリ
 #
 # コンテナ構成：
-#   db     ... PostgreSQL（動画メタ情報・ジョブ情報の永続化）
-#   redis  ... Redis（split ジョブキュー）
-#   api    ... FastAPI（認証・アップロード・署名URL生成・ジョブ状態参照）
-#   worker ... Worker（Redis Queue 監視・ffmpeg HLS 変換）
-#   nginx  ... Nginx（HLS 配信 + secure_link_md5 署名検証）
+#   db             ... PostgreSQL（動画メタ情報・ジョブ情報の永続化）
+#   redis          ... Redis（split ジョブキュー）
+#   minio          ... MinIO（HLS ファイルの永続保存）
+#   createbuckets  ... MinIO バケット初期化（起動時のみ実行）
+#   api            ... FastAPI（認証・アップロード・署名URL生成・ジョブ状態参照）
+#   worker         ... Worker（Redis Queue 監視・ffmpeg HLS 変換・MinIO アップロード）
+#   nginx          ... Nginx（HLS 配信 + secure_link_md5 署名検証 + MinIO proxy_cache）
 #
-# /videos ディレクトリを api/worker/nginx コンテナで共有し、
-# API が受け取った mp4 を Worker が ffmpeg で HLS に変換して
-# Nginx が直接配信する。
+# HLS ファイル（playlist.m3u8 + segment*.ts）は Worker が MinIO に保存する。
+# Nginx は secure_link 検証後に MinIO へ直接 proxy_pass して取得・キャッシュする。
 # 動画メタ情報とジョブ情報は PostgreSQL（db コンテナ）に保存し、
 # Alembic でスキーマを管理する。
 #
@@ -59,10 +60,62 @@ services:
       retries: 5
 
   # ----------------------------------------------------------
+  # MinIO コンテナ
+  # HLS ファイル（playlist.m3u8 + segment*.ts）の永続保存先。
+  # S3 互換 API（ポート 9000）と Web コンソール（ポート 9001）を提供する。
+  # Worker が HLS 変換後に boto3 経由でファイルをアップロードする。
+  # Nginx は内部ネットワーク経由で MinIO に直接 proxy_pass する。
+  # ----------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: minitube_minio
+    environment:
+      # MinIO の root 認証情報
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-changeme_minio_secret}
+    volumes:
+      - minio_data:/data
+    ports:
+      # S3 API ポート（api/worker/nginx から利用）
+      - "9000:9000"
+      # Web コンソールポート（ブラウザで http://localhost:9001 からアクセス可能）
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # createbuckets コンテナ（初期化のみ）
+  # MinIO の起動後に一度だけ実行し、バケットを作成して
+  # 匿名ダウンロードポリシーを設定する。
+  # Nginx が認証なしで MinIO から HLS ファイルを取得できるようにする。
+  # （外部からは Nginx の secure_link で保護される）
+  # ----------------------------------------------------------
+  createbuckets:
+    image: minio/mc:latest
+    container_name: minitube_createbuckets
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 ${MINIO_ACCESS_KEY:-minioadmin} ${MINIO_SECRET_KEY:-changeme_minio_secret} &&
+      mc mb --ignore-existing myminio/${MINIO_BUCKET:-minitube} &&
+      mc anonymous set download myminio/${MINIO_BUCKET:-minitube} &&
+      exit 0
+      "
+    restart: "no"
+
+  # ----------------------------------------------------------
   # FastAPI コンテナ
   # ポート 8000 でリッスンし、認証・アップロード・
   # 署名付きURL生成・ジョブ状態参照を担当する。
   # HLS 変換は Worker コンテナに委譲する（ffmpeg は Worker に入れる）。
+  # playlist.m3u8 は MinIO から読み込んで署名付きセグメント URL を付与して返す。
   # ----------------------------------------------------------
   api:
     build:
@@ -82,8 +135,13 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-minitube}:${POSTGRES_PASSWORD:-changeme_replace_in_production}@db/${POSTGRES_DB:-minitube}
       # REDIS_URL は Redis への接続文字列
       - REDIS_URL=redis://redis:6379/0
+      # MinIO 接続情報（playlist.m3u8 の読み込みに使用）
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-http://minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-changeme_minio_secret}
+      - MINIO_BUCKET=${MINIO_BUCKET:-minitube}
     volumes:
-      # /videos を api コンテナにマウントし、アップロードファイルの保存先とする
+      # /videos を api コンテナにマウントし、アップロードファイル（input.mp4）の一時保存先とする
       - videos_data:/videos
     ports:
       - "8000:8000"
@@ -92,13 +150,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     restart: unless-stopped
 
   # ----------------------------------------------------------
   # Worker コンテナ
   # Redis Queue を常時監視し、split ジョブを処理する。
-  # ffmpeg による HLS 変換を担当する。
-  # API コンテナとは別コンテナで動作し、videos_data を共有する。
+  # ffmpeg による HLS 変換を担当し、変換後に MinIO へアップロードする。
+  # ローカルへの恒久保存は行わない（一時ディレクトリのみ使用）。
   # ----------------------------------------------------------
   worker:
     build:
@@ -110,23 +170,31 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-minitube}:${POSTGRES_PASSWORD:-changeme_replace_in_production}@db/${POSTGRES_DB:-minitube}
       # REDIS_URL は Redis への接続文字列
       - REDIS_URL=redis://redis:6379/0
+      # MinIO 接続情報（HLS ファイルのアップロードに使用）
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-http://minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-changeme_minio_secret}
+      - MINIO_BUCKET=${MINIO_BUCKET:-minitube}
     volumes:
-      # /videos を worker コンテナにもマウントし、HLS 変換の入出力先とする
+      # /videos を worker コンテナにマウントし、input.mp4 の読み込み先とする
       - videos_data:/videos
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     restart: unless-stopped
 
   # ----------------------------------------------------------
   # Nginx コンテナ
-  # /videos/ 以下の HLS ファイルを secure_link_md5 で保護して配信する。
+  # /videos/ 以下のリクエストを secure_link_md5 で検証した後、
+  # MinIO に proxy_pass してセグメントを取得・キャッシュして返す。
   # /api/* は FastAPI にリバースプロキシする。
   #
   # nginx.conf は docker-compose 起動時に envsubst で処理され、
-  # ${SECRET_KEY} が実際のシークレット値に置換される。
+  # ${SECRET_KEY} と ${MINIO_BUCKET} が実際の値に置換される。
   # ----------------------------------------------------------
   nginx:
     image: nginx:1.25-alpine
@@ -135,29 +203,37 @@ services:
       # secure_link_md5 の署名検証に使用する秘密鍵。
       # FastAPI と同じ値を設定する必要がある。
       - SECRET_KEY=${SECRET_KEY:-changeme_replace_in_production}
+      # MinIO のバケット名（proxy_pass の URI 組み立てに使用）
+      - MINIO_BUCKET=${MINIO_BUCKET:-minitube}
     volumes:
       # nginx.conf をテンプレートとしてマウントする
-      # コンテナ起動時に envsubst で ${SECRET_KEY} を置換してから nginx を起動する
+      # コンテナ起動時に envsubst で変数を置換してから nginx を起動する
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf.template:ro
-      # /videos を nginx コンテナにもマウントし、HLS ファイルを直接配信する
-      - videos_data:/videos:ro
     ports:
       - "80:80"
     depends_on:
       - api
-    # コンテナ起動時に envsubst で ${SECRET_KEY} を nginx.conf に埋め込んでから起動する
-    # '$$SECRET_KEY' の $$ は docker-compose の変数展開を回避するためのエスケープ
-    # envsubst に '$$SECRET_KEY' を渡すことで、nginx の $uri, $host 等は置換されない
+      - minio
+    # コンテナ起動時に以下を実行する:
+    #   1. proxy_cache 用ディレクトリを作成
+    #   2. envsubst で ${SECRET_KEY} と ${MINIO_BUCKET} を nginx.conf に埋め込む
+    #   3. nginx を起動する
+    # '$$SECRET_KEY' / '$$MINIO_BUCKET' の $$ は docker-compose の変数展開を
+    # 回避するためのエスケープ。nginx の $uri, $host 等は置換されない。
     command: >
       /bin/sh -c
-      "envsubst '$$SECRET_KEY' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
+      "mkdir -p /tmp/nginx/hls_cache
+      && envsubst '$$SECRET_KEY $$MINIO_BUCKET' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
       && nginx -g 'daemon off;'"
     restart: unless-stopped
 
 # ----------------------------------------------------------
 # ボリューム定義
-# videos_data: FastAPI（書き込み）・Worker（読み書き）・Nginx（読み取り）で共有する
+# videos_data: FastAPI（input.mp4 書き込み）・Worker（input.mp4 読み取り）で共有
+#              HLS 生成物は Worker が MinIO に保存するため Nginx には不要
+# minio_data:  MinIO が HLS ファイルを永続保存するボリューム
 # ----------------------------------------------------------
 volumes:
   videos_data:
   postgres_data:
+  minio_data:

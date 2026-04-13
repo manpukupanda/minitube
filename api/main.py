@@ -40,7 +40,10 @@ import shutil
 import time
 import uuid
 
+import boto3
 import redis as redis_lib
+from botocore.config import Config
+from botocore.exceptions import ClientError
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -161,6 +164,34 @@ def get_db():
 # REDIS_URL は環境変数から取得する（デフォルト: redis://redis:6379/0）
 REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 redis_client = redis_lib.from_url(REDIS_URL)
+
+
+# ==============================================================
+# MinIO クライアント設定
+# ==============================================================
+
+def _get_s3_client():
+    """
+    MinIO への boto3 S3 クライアントを返す。
+
+    環境変数から接続情報を取得する:
+        MINIO_ENDPOINT   : MinIO の S3 API エンドポイント（例: http://minio:9000）
+        MINIO_ACCESS_KEY : MinIO の root アクセスキー
+        MINIO_SECRET_KEY : MinIO の root シークレットキー
+    """
+    endpoint = os.environ.get("MINIO_ENDPOINT", "http://minio:9000")
+    access_key = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
+    secret_key = os.environ.get("MINIO_SECRET_KEY", "changeme_minio_secret")
+
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(signature_version="s3v4"),
+        # MinIO はリージョンを気にしないが boto3 は必須のため設定する
+        region_name="us-east-1",
+    )
 
 
 # ==============================================================
@@ -570,22 +601,32 @@ async def proxy_signed_playlist(
     _user: str = Depends(require_login),
 ):
     """
-    ローカルに保存された playlist.m3u8 を読み込み、各セグメント URI に
+    MinIO に保存された playlist.m3u8 を読み込み、各セグメント URI に
     Nginx の secure_link_md5 と互換性のある署名（expires, md5）を付与して返す。
 
     これによりブラウザは署名付きのセグメント URL を直接 Nginx に要求できる。
-    """
-    playlist_path = os.path.join(VIDEOS_DIR, video_id, "playlist.m3u8")
+    Nginx は secure_link 検証後に MinIO へ直接 proxy_pass してセグメントを返す。
 
-    if not os.path.exists(playlist_path):
-        return HTMLResponse(content="<h1>404 - playlist not found</h1>", status_code=404)
+    MinIO のオブジェクトキー: hls/{video_id}/playlist.m3u8
+    """
+    bucket = os.environ.get("MINIO_BUCKET", "minitube")
+    playlist_key = f"hls/{video_id}/playlist.m3u8"
+
+    s3 = _get_s3_client()
+    try:
+        response = s3.get_object(Bucket=bucket, Key=playlist_key)
+        raw_content = response["Body"].read().decode("utf-8")
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "")
+        if error_code in ("NoSuchKey", "404", "NoSuchBucket"):
+            return HTMLResponse(content="<h1>404 - playlist not found</h1>", status_code=404)
+        raise
 
     secret_key = os.environ.get("SECRET_KEY", "changeme_replace_in_production")
     expires = int(time.time()) + 3600
 
     # プレイリストを読み込み、セグメント行（# で始まらない行）を署名付き URL に置換
-    with open(playlist_path, "r", encoding="utf-8") as f:
-        lines = f.read().splitlines()
+    lines = raw_content.splitlines()
 
     out_lines = []
     for line in lines:
@@ -602,9 +643,11 @@ async def proxy_signed_playlist(
             continue
 
         # Nginx に対する URI を組み立てる（先頭スラッシュ付き）
+        # /videos/{video_id}/{seg_name} → Nginx が secure_link 検証後 MinIO に proxy
         uri = f"/videos/{video_id}/{seg_path}"
 
         # Nginx と同じ方法で署名を計算する
+        # 形式: md5(expires + uri + SECRET_KEY)
         raw = f"{expires}{uri}{secret_key}"
         digest = hashlib.md5(raw.encode("utf-8")).digest()  # noqa: S324
         sig = base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
