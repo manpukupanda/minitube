@@ -666,39 +666,14 @@ async def videos_page(request: Request, db: Session = Depends(get_db)):
 async def upload_page(
     request: Request,
     user: dict = Depends(require_login),
-    db: Session = Depends(get_db),
 ):
     # Uploader または Admin のみアップロード可能
     if "uploader" not in user["roles"] and "admin" not in user["roles"]:
         raise Forbidden()
-    videos = db.query(Video).filter(
-        Video.owner_user_id == user["user_id"]
-    ).order_by(Video.created_at.desc()).all()
-    video_ids = [v.id for v in videos]
-    jobs = (
-        db.query(Job)
-        .filter(Job.video_id.in_(video_ids), Job.type == "split")
-        .all()
-    ) if video_ids else []
-    job_map = {j.video_id: j for j in jobs}
-    video_list = []
-    for v in videos:
-        job = job_map.get(v.id)
-        status = job.status if job else "completed"
-        job_id = job.id if job else None
-        video_list.append({
-            "id": v.id,
-            "title": v.title,
-            "created_at": v.created_at,
-            "status": status,
-            "job_id": job_id,
-            "visibility": v.visibility,
-        })
     return templates.TemplateResponse(
         request,
         "upload.html",
         {
-            "videos": video_list,
             "is_admin": "admin" in user["roles"],
         },
     )
