@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<!--
+  admin_users.html - 管理者用ユーザ管理ページ
+
+  全ユーザの一覧とロールを表示する。各ユーザのロールを追加・削除できる。
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ユーザ管理 - minitube</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a1a;
+      border-bottom: 1px solid #333;
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      color: #ff4444;
+    }
+
+    header nav a {
+      color: #aaa;
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-left: 20px;
+      transition: color 0.2s;
+    }
+
+    header nav a:hover {
+      color: #fff;
+    }
+
+    main {
+      max-width: 960px;
+      margin: 40px auto;
+      padding: 0 24px;
+    }
+
+    h2 {
+      font-size: 1.2rem;
+      margin-bottom: 20px;
+      color: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th, td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid #2a2a2a;
+      font-size: 0.9rem;
+    }
+
+    th {
+      color: #888;
+      font-weight: normal;
+      background: #222;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    .role-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      margin-right: 4px;
+      margin-bottom: 2px;
+    }
+
+    .role-admin {
+      background: rgba(255, 68, 68, 0.2);
+      color: #ff6666;
+      border: 1px solid #ff4444;
+    }
+
+    .role-uploader {
+      background: rgba(68, 153, 255, 0.2);
+      color: #66aaff;
+      border: 1px solid #4499ff;
+    }
+
+    .role-viewer {
+      background: rgba(68, 204, 68, 0.2);
+      color: #66dd66;
+      border: 1px solid #44cc44;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .btn-remove {
+      display: inline-block;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      background: rgba(255, 68, 68, 0.2);
+      color: #ff6666;
+      border: 1px solid #ff4444;
+      border-radius: 4px;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .btn-remove:hover {
+      background: rgba(255, 68, 68, 0.4);
+    }
+
+    .add-role-form {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .add-role-form select {
+      padding: 4px 8px;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-size: 0.8rem;
+    }
+
+    .btn-add {
+      padding: 4px 10px;
+      background: #333;
+      color: #aaa;
+      border: 1px solid #555;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition: background 0.2s;
+    }
+
+    .btn-add:hover {
+      background: #444;
+      color: #fff;
+    }
+
+    .no-users {
+      color: #555;
+      text-align: center;
+      padding: 32px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>▶ minitube</h1>
+    <nav>
+      <a href="/videos">動画一覧</a>
+      <a href="/upload">アップロード</a>
+      <a href="/admin/users">ユーザ管理</a>
+      <a href="/profile">プロフィール</a>
+      <a href="/logout">ログアウト</a>
+    </nav>
+  </header>
+
+  <main>
+    <h2>ユーザ管理</h2>
+
+    {% if users %}
+    <table>
+      <thead>
+        <tr>
+          <th>メールアドレス</th>
+          <th>ロール</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+        <tr>
+          <td>
+            {{ user.email }}
+            {% if user.is_admin_account %}
+            <span style="color: #555; font-size: 0.75rem;">(システム管理者)</span>
+            {% endif %}
+          </td>
+          <td>
+            {% for role in user.roles %}
+              <span class="role-badge role-{{ role }}">{{ role }}</span>
+            {% endfor %}
+            {% if not user.roles %}
+              <span style="color: #555; font-size: 0.8rem;">なし</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="actions">
+              <!-- ロール削除ボタン -->
+              {% for role in user.roles %}
+                {% if not (user.is_admin_account and role == "admin") %}
+                <form action="/api/admin/users/{{ user.id }}/roles/{{ role }}/delete" method="post" style="display:inline;">
+                  <button type="submit" class="btn-remove">{{ role }} を削除</button>
+                </form>
+                {% endif %}
+              {% endfor %}
+
+              <!-- ロール追加フォーム -->
+              <form action="/api/admin/users/{{ user.id }}/roles" method="post" class="add-role-form">
+                <select name="role_name">
+                  {% for role_name in all_roles %}
+                    {% if role_name not in user.roles %}
+                    <option value="{{ role_name }}">{{ role_name }}</option>
+                    {% endif %}
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn-add">追加</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="no-users">ユーザがいません。</p>
+    {% endif %}
+  </main>
+</body>
+</html>

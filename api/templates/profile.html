@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<!--
+  profile.html - プロフィールページ
+
+  ログインユーザのメールアドレスとロール一覧を表示する。
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>プロフィール - minitube</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a1a;
+      border-bottom: 1px solid #333;
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      color: #ff4444;
+    }
+
+    header nav a {
+      color: #aaa;
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-left: 20px;
+      transition: color 0.2s;
+    }
+
+    header nav a:hover {
+      color: #fff;
+    }
+
+    main {
+      max-width: 640px;
+      margin: 48px auto;
+      padding: 0 24px;
+    }
+
+    .profile-card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 36px;
+    }
+
+    .profile-card h2 {
+      font-size: 1.3rem;
+      margin-bottom: 28px;
+      color: #fff;
+    }
+
+    .info-row {
+      display: flex;
+      align-items: flex-start;
+      margin-bottom: 20px;
+      gap: 16px;
+    }
+
+    .info-label {
+      font-size: 0.85rem;
+      color: #888;
+      min-width: 120px;
+      padding-top: 2px;
+    }
+
+    .info-value {
+      font-size: 0.95rem;
+      color: #e0e0e0;
+    }
+
+    .role-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      margin-right: 6px;
+      margin-bottom: 4px;
+    }
+
+    .role-admin {
+      background: rgba(255, 68, 68, 0.2);
+      color: #ff6666;
+      border: 1px solid #ff4444;
+    }
+
+    .role-uploader {
+      background: rgba(68, 153, 255, 0.2);
+      color: #66aaff;
+      border: 1px solid #4499ff;
+    }
+
+    .role-viewer {
+      background: rgba(68, 204, 68, 0.2);
+      color: #66dd66;
+      border: 1px solid #44cc44;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>▶ minitube</h1>
+    <nav>
+      <a href="/videos">動画一覧</a>
+      {% if is_uploader or is_admin %}
+      <a href="/upload">アップロード</a>
+      {% endif %}
+      {% if is_admin %}
+      <a href="/admin/users">ユーザ管理</a>
+      {% endif %}
+      <a href="/logout">ログアウト</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="profile-card">
+      <h2>プロフィール</h2>
+
+      <div class="info-row">
+        <span class="info-label">メールアドレス</span>
+        <span class="info-value">{{ email }}</span>
+      </div>
+
+      <div class="info-row">
+        <span class="info-label">ロール</span>
+        <span class="info-value">
+          {% for role in roles %}
+            <span class="role-badge role-{{ role }}">{{ role }}</span>
+          {% endfor %}
+          {% if not roles %}
+            <span style="color: #555;">なし</span>
+          {% endif %}
+        </span>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
