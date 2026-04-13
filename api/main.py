@@ -56,8 +56,6 @@ import re
 import secrets
 import shutil
 import time
-import uuid
-
 import boto3
 import redis as redis_lib
 from botocore.config import Config
@@ -69,6 +67,8 @@ from passlib.context import CryptContext
 from sqlalchemy import BigInteger, Column, ForeignKey, String, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
+
+from utils.id_generator import generate_base62_id
 
 logger = logging.getLogger("minitube")
 logging.basicConfig(level=logging.INFO)
@@ -185,16 +185,13 @@ def get_db():
         db.close()
 
 
-# UUID 形式の検証パターン
-_UUID_RE = re.compile(
-    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
-    re.IGNORECASE,
-)
+# Base62 ID 形式の検証パターン（11 文字の [0-9A-Za-z]）
+_BASE62_ID_RE = re.compile(r'^[0-9A-Za-z]{11}$')
 
 
-def _is_valid_uuid(value: str) -> bool:
-    """文字列が UUID v4 形式かどうかを検証する。パストラバーサル攻撃を防ぐ。"""
-    return bool(_UUID_RE.match(value))
+def _is_valid_id(value: str) -> bool:
+    """文字列が Base62 ID 形式（11 文字）かどうかを検証する。パストラバーサル攻撃を防ぐ。"""
+    return bool(_BASE62_ID_RE.match(value))
 
 
 # ==============================================================
@@ -260,7 +257,7 @@ async def startup_event():
         for role_name in ROLE_NAMES:
             role = db.query(Role).filter(Role.name == role_name).first()
             if not role:
-                role = Role(id=str(uuid.uuid4()), name=role_name)
+                role = Role(id=generate_base62_id(), name=role_name)
                 db.add(role)
                 logger.info(f"[init] ロール作成: {role_name}")
             role_map[role_name] = role
@@ -271,7 +268,7 @@ async def startup_event():
         if not admin_user:
             initial_password = os.environ.get("INITIAL_ADMIN_PASSWORD", "admin")
             admin_user = User(
-                id=str(uuid.uuid4()),
+                id=generate_base62_id(),
                 email=ADMIN_EMAIL,
                 password_hash=hash_password(initial_password),
                 created_at=int(time.time()),
@@ -454,7 +451,7 @@ async def api_register(
         return RedirectResponse(url="/register?error=already_exists", status_code=303)
     now = int(time.time())
     user = User(
-        id=str(uuid.uuid4()),
+        id=generate_base62_id(),
         email=email,
         password_hash=hash_password(password),
         created_at=now,
@@ -690,8 +687,8 @@ async def api_upload(
     # Uploader または Admin のみアップロード可能
     if "uploader" not in user["roles"] and "admin" not in user["roles"]:
         raise Forbidden()
-    video_id = str(uuid.uuid4())
-    job_id = str(uuid.uuid4())
+    video_id = generate_base62_id()
+    job_id = generate_base62_id()
     now = int(time.time())
     output_dir = os.path.join(VIDEOS_DIR, video_id)
     os.makedirs(output_dir, exist_ok=True)
@@ -924,7 +921,7 @@ async def create_category(
     existing = db.query(Category).filter(Category.name == name).first()
     if existing:
         return RedirectResponse(url="/admin/categories?error=duplicate_name", status_code=303)
-    cat = Category(id=str(uuid.uuid4()), name=name, created_at=int(time.time()))
+    cat = Category(id=generate_base62_id(), name=name, created_at=int(time.time()))
     db.add(cat)
     db.commit()
     return RedirectResponse(url="/admin/categories", status_code=303)
@@ -981,7 +978,7 @@ async def video_edit_page(
     db: Session = Depends(get_db),
 ):
     """動画編集ページ（オーナーまたは Admin のみ）。"""
-    if not _is_valid_uuid(video_id):
+    if not _is_valid_id(video_id):
         return HTMLResponse(content="<h1>400 - 無効な動画 ID です</h1>", status_code=400)
     current_user = require_login(request)
     video = db.query(Video).filter(Video.id == video_id).first()
@@ -1028,7 +1025,7 @@ async def api_video_update(
     db: Session = Depends(get_db),
 ):
     """動画メタ情報を更新する（オーナーまたは Admin のみ）。"""
-    if not _is_valid_uuid(video_id):
+    if not _is_valid_id(video_id):
         return JSONResponse({"error": "invalid video_id"}, status_code=400)
     current_user = require_login(request)
     video = db.query(Video).filter(Video.id == video_id).first()
@@ -1057,7 +1054,7 @@ async def api_video_delete(
     db: Session = Depends(get_db),
 ):
     """動画を削除する（オーナーまたは Admin のみ）。HLS も削除する。"""
-    if not _is_valid_uuid(video_id):
+    if not _is_valid_id(video_id):
         return JSONResponse({"error": "invalid video_id"}, status_code=400)
     current_user = require_login(request)
     video = db.query(Video).filter(Video.id == video_id).first()
@@ -1089,7 +1086,7 @@ async def api_video_replace(
     db: Session = Depends(get_db),
 ):
     """動画ファイルを差し替える（video_id は変わらない）。HLS を再生成する。"""
-    if not _is_valid_uuid(video_id):
+    if not _is_valid_id(video_id):
         return JSONResponse({"error": "invalid video_id"}, status_code=400)
     current_user = require_login(request)
     video = db.query(Video).filter(Video.id == video_id).first()
@@ -1114,7 +1111,7 @@ async def api_video_replace(
         job.updated_at = now
     else:
         job = Job(
-            id=str(uuid.uuid4()),
+            id=generate_base62_id(),
             video_id=video.id,
             type="split",
             status="queued",

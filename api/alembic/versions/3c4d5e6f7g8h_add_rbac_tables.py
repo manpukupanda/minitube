@@ -17,7 +17,7 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         "users",
-        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("id", sa.CHAR(11), nullable=False),
         sa.Column("email", sa.String(), nullable=False),
         sa.Column("password_hash", sa.String(), nullable=False),
         sa.Column("created_at", sa.BigInteger(), nullable=False),
@@ -27,7 +27,7 @@ def upgrade() -> None:
 
     op.create_table(
         "roles",
-        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("id", sa.CHAR(11), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name"),
@@ -35,8 +35,8 @@ def upgrade() -> None:
 
     op.create_table(
         "user_roles",
-        sa.Column("user_id", sa.String(), nullable=False),
-        sa.Column("role_id", sa.String(), nullable=False),
+        sa.Column("user_id", sa.CHAR(11), nullable=False),
+        sa.Column("role_id", sa.CHAR(11), nullable=False),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.ForeignKeyConstraint(["role_id"], ["roles.id"]),
         sa.PrimaryKeyConstraint("user_id", "role_id"),
@@ -44,14 +44,14 @@ def upgrade() -> None:
 
     op.create_table(
         "video_permissions",
-        sa.Column("user_id", sa.String(), nullable=False),
-        sa.Column("video_id", sa.String(), nullable=False),
+        sa.Column("user_id", sa.CHAR(11), nullable=False),
+        sa.Column("video_id", sa.CHAR(11), nullable=False),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.ForeignKeyConstraint(["video_id"], ["videos.id"]),
         sa.PrimaryKeyConstraint("user_id", "video_id"),
     )
 
-    op.add_column("videos", sa.Column("owner_user_id", sa.String(), nullable=True))
+    op.add_column("videos", sa.Column("owner_user_id", sa.CHAR(11), nullable=True))
     op.add_column("videos", sa.Column("description", sa.String(), nullable=True))
     op.add_column(
         "videos",
