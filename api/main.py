@@ -1057,16 +1057,15 @@ async def api_video_update(
     if visibility not in ("public", "private"):
         visibility = "public"
     title = title.strip()
-    safe_id = video.id  # DB から取得した値を使用（パストラバーサル対策）
     if not title:
-        return RedirectResponse(url=f"/videos/{safe_id}/edit?error=empty_title", status_code=303)
+        return RedirectResponse(url=f"/videos/{video.id}/edit?error=empty_title", status_code=303)
     video.title = title
     video.description = description.strip() or None
     video.category_id = category_id.strip() or None
     video.visibility = visibility
     video.updated_at = int(time.time())
     db.commit()
-    return RedirectResponse(url=f"/videos/{safe_id}/edit", status_code=303)
+    return RedirectResponse(url=f"/videos/{video.id}/edit", status_code=303)
 
 
 @app.post("/api/videos/{video_id}/delete")
@@ -1117,17 +1116,16 @@ async def api_video_replace(
     if "admin" not in current_user["roles"] and video.owner_user_id != current_user["user_id"]:
         raise Forbidden()
     now = int(time.time())
-    safe_id = video.id  # DB から取得した値を使用（パストラバーサル対策）
     # 古い HLS を MinIO から削除する
-    _delete_hls_from_minio(safe_id)
+    _delete_hls_from_minio(video.id)
     # 新しい input.mp4 を保存する
-    output_dir = os.path.join(VIDEOS_DIR, safe_id)
+    output_dir = os.path.join(VIDEOS_DIR, video.id)
     os.makedirs(output_dir, exist_ok=True)
     input_path = os.path.join(output_dir, "input.mp4")
     with open(input_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     # 既存の split ジョブを再利用（ステータスをリセット）またはレコードを作成する
-    job = db.query(Job).filter(Job.video_id == safe_id, Job.type == "split").first()
+    job = db.query(Job).filter(Job.video_id == video.id, Job.type == "split").first()
     if job:
         job.status = "queued"
         job.error_message = None
@@ -1135,7 +1133,7 @@ async def api_video_replace(
     else:
         job = Job(
             id=str(uuid.uuid4()),
-            video_id=safe_id,
+            video_id=video.id,
             type="split",
             status="queued",
             error_message=None,
@@ -1147,5 +1145,5 @@ async def api_video_replace(
     video.updated_at = now
     db.commit()
     redis_client.rpush(SPLIT_QUEUE, job.id)
-    return RedirectResponse(url=f"/videos/{safe_id}/edit", status_code=303)
+    return RedirectResponse(url=f"/videos/{video.id}/edit", status_code=303)
 
