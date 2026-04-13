@@ -631,6 +631,12 @@ async def videos_page(request: Request, db: Session = Depends(get_db)):
                 owner = db.query(User).filter(User.id == v.owner_user_id).first()
                 if owner:
                     owner_email = owner.email
+            can_edit = bool(
+                current_user and (
+                    "admin" in current_user["roles"]
+                    or v.owner_user_id == current_user["user_id"]
+                )
+            )
             visible_videos.append({
                 "id": v.id,
                 "title": v.title,
@@ -638,6 +644,7 @@ async def videos_page(request: Request, db: Session = Depends(get_db)):
                 "owner_email": owner_email,
                 "created_at": v.created_at,
                 "status": status,
+                "can_edit": can_edit,
             })
     return templates.TemplateResponse(
         request,

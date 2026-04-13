@@ -225,6 +225,9 @@
             {% else %}
               <a class="disabled" href="/player/{{ video.id }}">再生不可</a>
             {% endif %}
+            {% if video.can_edit %}
+              　<a href="/videos/{{ video.id }}/edit">編集 ✏</a>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
