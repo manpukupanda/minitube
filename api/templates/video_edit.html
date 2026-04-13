@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<!--
+  video_edit.html - 動画編集ページ
+
+  アップロード後に自動遷移する編集画面。
+  タイトル・説明・カテゴリ・公開設定の編集、個別権限管理、
+  ファイル差し替え、動画削除を行える。
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>動画を編集 - minitube</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a1a;
+      border-bottom: 1px solid #333;
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      color: #ff4444;
+    }
+
+    header nav a {
+      color: #aaa;
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-left: 20px;
+      transition: color 0.2s;
+    }
+
+    header nav a:hover {
+      color: #fff;
+    }
+
+    main {
+      max-width: 760px;
+      margin: 40px auto;
+      padding: 0 24px;
+    }
+
+    h2 {
+      font-size: 1.3rem;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+
+    .video-id {
+      font-size: 0.8rem;
+      color: #555;
+      margin-bottom: 24px;
+      word-break: break-all;
+    }
+
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    .card h3 {
+      font-size: 1rem;
+      margin-bottom: 18px;
+      color: #ccc;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #2a2a2a;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: #999;
+      margin-bottom: 6px;
+      margin-top: 16px;
+    }
+
+    label:first-of-type {
+      margin-top: 0;
+    }
+
+    input[type="text"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 9px 12px;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      border-radius: 4px;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+      outline: none;
+      font-family: inherit;
+    }
+
+    input[type="text"]:focus,
+    textarea:focus,
+    select:focus {
+      border-color: #ff4444;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 90px;
+    }
+
+    select option {
+      background: #2a2a2a;
+    }
+
+    .radio-group {
+      display: flex;
+      gap: 24px;
+      margin-top: 4px;
+    }
+
+    .radio-group label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      margin-top: 0;
+      color: #e0e0e0;
+      font-size: 0.9rem;
+    }
+
+    .btn {
+      padding: 9px 20px;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-primary {
+      background: #ff4444;
+      color: #fff;
+      font-weight: bold;
+    }
+
+    .btn-primary:hover {
+      background: #cc2222;
+    }
+
+    .btn-secondary {
+      background: #333;
+      color: #aaa;
+      border: 1px solid #555;
+    }
+
+    .btn-secondary:hover {
+      background: #444;
+      color: #fff;
+    }
+
+    .btn-danger {
+      background: rgba(255, 68, 68, 0.15);
+      color: #ff6666;
+      border: 1px solid #ff4444;
+      padding: 8px 18px;
+      font-size: 0.85rem;
+    }
+
+    .btn-danger:hover {
+      background: rgba(255, 68, 68, 0.3);
+    }
+
+    .save-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      font-weight: bold;
+    }
+
+    .status-processing {
+      background: #1a2a3a;
+      color: #4499ff;
+    }
+
+    .status-ready {
+      background: #1a2a1a;
+      color: #44cc44;
+    }
+
+    .status-failed {
+      background: #2a1a1a;
+      color: #ff6666;
+    }
+
+    .status-spinner {
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(68, 153, 255, 0.3);
+      border-top-color: #4499ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .permission-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 0;
+      border-bottom: 1px solid #2a2a2a;
+      font-size: 0.85rem;
+    }
+
+    .permission-item:last-child {
+      border-bottom: none;
+    }
+
+    .add-permission-form {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .add-permission-form input {
+      flex: 1;
+    }
+
+    .file-replace-area {
+      border: 2px dashed #444;
+      border-radius: 6px;
+      padding: 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .file-replace-area:hover {
+      border-color: #ff4444;
+      background: rgba(255, 68, 68, 0.05);
+    }
+
+    .file-replace-area p {
+      color: #888;
+      font-size: 0.9rem;
+      margin: 0;
+    }
+
+    #replace-file-name {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      color: #4caf50;
+    }
+
+    .back-link {
+      display: inline-block;
+      margin-top: 8px;
+      color: #aaa;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+
+    .back-link:hover {
+      color: #fff;
+    }
+
+    .player-link {
+      display: inline-block;
+      margin-top: 8px;
+      margin-left: 16px;
+      color: #ff4444;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+
+    .player-link:hover {
+      text-decoration: underline;
+    }
+
+    .danger-zone {
+      border-color: #442222;
+    }
+
+    .danger-zone h3 {
+      color: #ff6666;
+      border-bottom-color: #442222;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>▶ minitube</h1>
+    <nav>
+      <a href="/videos">動画一覧</a>
+      {% if is_admin or ("uploader" in current_user["roles"]) %}
+      <a href="/upload">アップロード</a>
+      {% endif %}
+      {% if is_admin %}
+      <a href="/admin/users">ユーザ管理</a>
+      <a href="/admin/categories">カテゴリ管理</a>
+      {% endif %}
+      <a href="/profile">プロフィール</a>
+      <a href="/logout">ログアウト</a>
+    </nav>
+  </header>
+
+  <main>
+    <h2>動画を編集</h2>
+    <p class="video-id">動画 ID: {{ video_id }}</p>
+
+    <!-- ステータス表示 -->
+    <div style="margin-bottom: 24px;">
+      <span id="status-badge" class="status-badge status-{{ status }}">
+        {% if status == "processing" %}
+          <span class="status-spinner"></span> 変換中
+        {% elif status == "ready" %}
+          ✓ 再生可能
+        {% else %}
+          ✗ エラー
+        {% endif %}
+      </span>
+      {% if status == "ready" %}
+      <a href="/player/{{ video_id }}" class="player-link">▶ 再生する</a>
+      {% endif %}
+    </div>
+
+    <!-- メタ情報編集フォーム -->
+    <div class="card">
+      <h3>メタ情報</h3>
+      <form action="/api/videos/{{ video_id }}/update" method="post">
+        <label for="title">タイトル</label>
+        <input
+          type="text"
+          id="title"
+          name="title"
+          value="{{ title }}"
+          required
+          maxlength="200"
+          placeholder="動画タイトルを入力"
+        />
+
+        <label for="description">説明</label>
+        <textarea
+          id="description"
+          name="description"
+          maxlength="2000"
+          placeholder="動画の説明を入力（任意）"
+        >{{ description }}</textarea>
+
+        <label for="category">カテゴリ</label>
+        <select id="category" name="category_id">
+          <option value="">カテゴリなし</option>
+          {% for cat in categories %}
+          <option value="{{ cat.id }}" {% if cat.id == category_id %}selected{% endif %}>
+            {{ cat.name }}
+          </option>
+          {% endfor %}
+        </select>
+
+        <label style="margin-top: 16px;">公開設定</label>
+        <div class="radio-group">
+          <label>
+            <input
+              type="radio"
+              name="visibility"
+              value="public"
+              {% if visibility == "public" %}checked{% endif %}
+            />
+            公開
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="visibility"
+              value="private"
+              {% if visibility == "private" %}checked{% endif %}
+            />
+            非公開
+          </label>
+        </div>
+
+        <div class="save-row">
+          <button type="submit" class="btn btn-primary">保存</button>
+          <a href="/videos" class="back-link">← 動画一覧に戻る</a>
+        </div>
+      </form>
+    </div>
+
+    <!-- 視聴権限管理（非公開時のみ表示） -->
+    <div id="permissions-section" class="card" style="{% if visibility != 'private' %}display: none;{% endif %}">
+      <h3>視聴権限管理</h3>
+      <form action="/api/admin/videos/{{ video_id }}/permissions" method="post" class="add-permission-form">
+        <input
+          type="email"
+          name="email"
+          placeholder="許可するユーザのメールアドレス"
+          required
+        />
+        <button type="submit" class="btn btn-secondary">権限付与</button>
+      </form>
+      {% if permissions %}
+      <div>
+        {% for perm in permissions %}
+        <div class="permission-item">
+          <span style="color: #ccc;">{{ perm.email }}</span>
+          <form action="/api/admin/videos/{{ video_id }}/permissions/{{ perm.user_id }}/delete" method="post" style="display: inline;">
+            <button type="submit" class="btn btn-danger">削除</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p style="color: #555; font-size: 0.85rem;">視聴権限を持つユーザはいません。</p>
+      {% endif %}
+    </div>
+
+    <!-- 動画ファイル差し替え -->
+    <div class="card">
+      <h3>動画ファイルを差し替え</h3>
+      <p style="font-size: 0.85rem; color: #888; margin-bottom: 16px;">
+        同一 video_id のまま新しい mp4 をアップロードします。HLS が再生成されます。
+      </p>
+      <form action="/api/videos/{{ video_id }}/replace" method="post" enctype="multipart/form-data" id="replace-form">
+        <div class="file-replace-area" onclick="document.getElementById('replace-file-input').click()">
+          <p>📹 クリックして新しい mp4 ファイルを選択</p>
+        </div>
+        <p id="replace-file-name"></p>
+        <input
+          type="file"
+          id="replace-file-input"
+          name="file"
+          accept="video/mp4,.mp4"
+          required
+          style="display: none;"
+          onchange="onReplaceFileSelected(this)"
+        />
+        <div style="margin-top: 14px;">
+          <button type="submit" id="replace-btn" class="btn btn-secondary" disabled>差し替える</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 危険ゾーン（削除） -->
+    <div class="card danger-zone">
+      <h3>動画を削除</h3>
+      <p style="font-size: 0.85rem; color: #888; margin-bottom: 16px;">
+        HLS ファイルと DB レコードがすべて削除されます。この操作は取り消せません。
+      </p>
+      <form
+        action="/api/videos/{{ video_id }}/delete"
+        method="post"
+        onsubmit="return confirm('この動画を削除しますか？この操作は取り消せません。')"
+      >
+        <button type="submit" class="btn btn-danger">動画を削除する</button>
+      </form>
+    </div>
+  </main>
+
+  <script>
+    const videoId = "{{ video_id }}";
+    const jobId = "{{ job_id or '' }}";
+    let currentStatus = "{{ status }}";
+
+    /**
+     * 差し替えファイルが選択されたときの処理
+     */
+    function onReplaceFileSelected(input) {
+      const fileName = input.files[0] ? input.files[0].name : "";
+      document.getElementById("replace-file-name").textContent = fileName
+        ? `選択済み: ${fileName}`
+        : "";
+      document.getElementById("replace-btn").disabled = !fileName;
+    }
+
+    /**
+     * 公開設定に応じて権限管理セクションの表示を切り替える
+     */
+    document.querySelectorAll('input[name="visibility"]').forEach(function (radio) {
+      radio.addEventListener("change", function () {
+        const section = document.getElementById("permissions-section");
+        if (section) {
+          section.style.display = this.value === "private" ? "block" : "none";
+        }
+      });
+    });
+
+    /**
+     * ステータスバッジを更新する
+     */
+    function updateStatusBadge(status) {
+      const badge = document.getElementById("status-badge");
+      if (!badge) return;
+      badge.className = "status-badge status-" + status;
+      if (status === "processing") {
+        badge.innerHTML = '<span class="status-spinner"></span> 変換中';
+      } else if (status === "ready") {
+        badge.textContent = "✓ 再生可能";
+      } else {
+        badge.textContent = "✗ エラー";
+      }
+    }
+
+    /**
+     * processing 中の場合はジョブ状態をポーリングしてステータスを更新する
+     */
+    (function startStatusPolling() {
+      if (currentStatus !== "processing" || !jobId) return;
+
+      async function poll() {
+        try {
+          const res = await fetch("/api/job/" + jobId);
+          if (!res.ok) return;
+          const data = await res.json();
+          const jobStatus = data.status;
+          if (jobStatus === "completed") {
+            currentStatus = "ready";
+            updateStatusBadge("ready");
+            // プレイヤーリンクを追加する
+            const badge = document.getElementById("status-badge");
+            if (badge && !badge.nextElementSibling) {
+              const link = document.createElement("a");
+              link.href = "/player/" + videoId;
+              link.className = "player-link";
+              link.textContent = "▶ 再生する";
+              badge.parentNode.insertBefore(link, badge.nextSibling);
+            }
+          } else if (jobStatus === "error") {
+            currentStatus = "failed";
+            updateStatusBadge("failed");
+          } else {
+            setTimeout(poll, 4000);
+          }
+        } catch (_) {
+          setTimeout(poll, 4000);
+        }
+      }
+
+      setTimeout(poll, 4000);
+    })();
+  </script>
+</body>
+</html>

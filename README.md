@@ -565,17 +565,80 @@ docker compose logs -f
 
 | メソッド | パス | 説明 | 認証 |
 |---------|------|------|------|
-| GET | `/` | ルート（/upload へリダイレクト） | - |
+| GET | `/` | ルート（/videos へリダイレクト） | - |
 | GET | `/login` | ログインページ | 不要 |
 | POST | `/api/login` | ログイン処理 | 不要 |
 | GET | `/logout` | ログアウト | 不要 |
-| GET | `/upload` | アップロードページ | 必要 |
-| POST | `/api/upload` | 動画アップロード（Worker へ変換ジョブをキューイング） | 必要 |
-| GET | `/player/{id}` | プレイヤーページ | 必要 |
-| GET | `/api/job/{job_id}` | ジョブ状態取得（queued/processing/completed/error） | 必要 |
+| GET | `/register` | ユーザ登録ページ | 不要 |
+| POST | `/api/register` | ユーザ登録 | 不要 |
+| GET | `/videos` | 動画一覧ページ | 不要（公開動画） |
+| GET | `/upload` | アップロードページ | 必要（uploader/admin） |
+| POST | `/api/upload` | 動画アップロード → 編集画面へリダイレクト | 必要（uploader/admin） |
+| GET | `/videos/{id}/edit` | 動画編集ページ | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/update` | 動画メタ情報更新（title/description/category/visibility） | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/delete` | 動画削除（HLS・DB レコード削除） | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/replace` | 動画ファイル差し替え（HLS 再生成） | 必要（オーナー/admin） |
+| GET | `/player/{id}` | プレイヤーページ | 必要（公開動画は不要） |
+| GET | `/api/job/{job_id}` | ジョブ状態取得（queued/processing/completed/error） | 不要 |
 | GET | `/api/videos/{id}/url` | 署名付き HLS URL 取得（`/api/videos/{id}/playlist` を指す） | 必要 |
 | GET | `/api/videos/{id}/playlist` | MinIO から playlist.m3u8 を取得し署名付きセグメント URL を埋め込んで返す | 必要 |
 | GET | `/videos/{id}/*.ts` | Nginx が secure_link 検証後 MinIO から TS セグメントを返す（FastAPI 経由なし） | 不要（署名） |
+| GET | `/profile` | プロフィールページ | 必要 |
+| GET | `/admin/users` | Admin 専用ユーザ管理ページ | 必要（admin） |
+| POST | `/api/admin/users/{id}/roles` | ロール付与 | 必要（admin） |
+| POST | `/api/admin/users/{id}/roles/{role}/delete` | ロール削除 | 必要（admin） |
+| POST | `/api/admin/videos/{id}/permissions` | 動画視聴権限付与 | 必要（admin/オーナー） |
+| POST | `/api/admin/videos/{id}/permissions/{uid}/delete` | 動画視聴権限削除 | 必要（admin/オーナー） |
+| GET | `/admin/categories` | カテゴリ管理ページ | 必要（admin） |
+| POST | `/api/admin/categories` | カテゴリ作成 | 必要（admin） |
+| POST | `/api/admin/categories/{id}/update` | カテゴリ名変更 | 必要（admin） |
+| POST | `/api/admin/categories/{id}/delete` | カテゴリ削除（動画紐付きは不可） | 必要（admin） |
+
+---
+
+## 動画メタ情報仕様
+
+### videos テーブルのカラム
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| `id` | VARCHAR | 動画の一意識別子（UUID v4） |
+| `title` | VARCHAR | タイトル |
+| `description` | VARCHAR | 説明（任意） |
+| `category_id` | VARCHAR | カテゴリ ID（FK → categories.id, ON DELETE SET NULL） |
+| `visibility` | VARCHAR | 公開設定（`public` / `private`） |
+| `status` | VARCHAR | 変換ステータス（`processing` / `ready` / `failed`） |
+| `owner_user_id` | VARCHAR | オーナーユーザ ID（FK → users.id） |
+| `created_at` | BIGINT | 作成日時（UNIX タイムスタンプ） |
+| `updated_at` | BIGINT | 更新日時（UNIX タイムスタンプ） |
+
+### categories テーブルのカラム
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| `id` | VARCHAR | カテゴリの一意識別子（UUID v4） |
+| `name` | VARCHAR | カテゴリ名（ユニーク） |
+| `created_at` | BIGINT | 作成日時（UNIX タイムスタンプ） |
+
+### 動画ステータスの遷移
+
+```
+アップロード → processing → ready（変換成功）
+                          → failed（変換失敗）
+差し替え     → processing → ready / failed
+```
+
+---
+
+## 動画アップロード → 編集画面への遷移フロー
+
+1. Uploader が `/upload` から mp4 をアップロード
+2. `video_id`（UUID）が発行され、`videos.status = "processing"` に設定
+3. HLS 変換ジョブが Redis Queue に登録される（`jobs.status = "queued"`）
+4. **動画編集画面 `/videos/{video_id}/edit` へ自動遷移**
+5. 編集画面でタイトル・説明・カテゴリ・公開設定を入力・保存
+6. Worker が HLS 変換完了後、`videos.status = "ready"` に更新
+7. 編集画面のステータスバッジが自動更新され「▶ 再生する」リンクが表示される
 
 ---
 

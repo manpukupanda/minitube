@@ -71,3 +71,23 @@ def update_job_status(conn, job_id: str, status: str, error_message: str | None 
             (status, error_message, now, job_id),
         )
     conn.commit()
+
+
+def update_video_status(conn, video_id: str, status: str) -> None:
+    """
+    動画の status と updated_at を更新する。
+
+    Worker がジョブ完了・失敗時に呼び出す。
+
+    Args:
+        conn:     psycopg2 接続オブジェクト
+        video_id: 動画の UUID
+        status:   新しい状態（processing / ready / failed）
+    """
+    now = int(time.time())
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE videos SET status = %s, updated_at = %s WHERE id = %s",
+            (status, now, video_id),
+        )
+    conn.commit()
