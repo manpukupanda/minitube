@@ -22,13 +22,13 @@ def upgrade() -> None:
     videos テーブルを作成する。
 
     カラム:
-        id         VARCHAR PRIMARY KEY - 動画の一意識別子（UUID v4 の文字列表現）
-        title      VARCHAR NOT NULL    - 元のファイル名（表示用タイトル）
-        created_at BIGINT  NOT NULL    - 登録日時（UNIX タイムスタンプ、秒単位）
+        id         CHAR(11) PRIMARY KEY - 動画の一意識別子（Base62 64bit ID）
+        title      VARCHAR NOT NULL     - 元のファイル名（表示用タイトル）
+        created_at BIGINT  NOT NULL     - 登録日時（UNIX タイムスタンプ、秒単位）
     """
     op.create_table(
         "videos",
-        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("id", sa.CHAR(11), nullable=False),
         sa.Column("title", sa.String(), nullable=False),
         sa.Column("created_at", sa.BigInteger(), nullable=False),
         sa.PrimaryKeyConstraint("id"),

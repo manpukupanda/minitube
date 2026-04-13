@@ -18,7 +18,7 @@ def upgrade() -> None:
     # categories テーブルを作成する
     op.create_table(
         "categories",
-        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("id", sa.CHAR(11), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("created_at", sa.BigInteger(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
@@ -26,7 +26,7 @@ def upgrade() -> None:
     )
 
     # videos テーブルにカテゴリ・ステータス・更新日時カラムを追加する
-    op.add_column("videos", sa.Column("category_id", sa.String(), nullable=True))
+    op.add_column("videos", sa.Column("category_id", sa.CHAR(11), nullable=True))
     op.create_foreign_key(
         "fk_videos_category_id",
         "videos",
