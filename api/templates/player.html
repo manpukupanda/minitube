@@ -166,7 +166,7 @@
     <nav>
       <a href="/videos">動画一覧</a>
       {% if current_user %}
-        {% if is_admin or (current_user and current_user.get("roles") and ("uploader" in current_user["roles"] or "admin" in current_user["roles"])) %}
+        {% if is_admin or (current_user["roles"] and ("uploader" in current_user["roles"] or "admin" in current_user["roles"])) %}
         <a href="/upload">アップロード</a>
         {% endif %}
         {% if is_admin %}

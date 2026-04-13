@@ -553,7 +553,7 @@ async def add_video_permission(
     if not existing:
         db.add(VideoPermission(user_id=target_user.id, video_id=video_id))
         db.commit()
-    return RedirectResponse(url=f"/player/{video_id}", status_code=303)
+    return RedirectResponse(url=f"/player/{video.id}", status_code=303)
 
 
 @app.post("/api/admin/videos/{video_id}/permissions/{target_user_id}/delete")
@@ -573,7 +573,7 @@ async def remove_video_permission(
         VideoPermission.video_id == video_id,
     ).delete()
     db.commit()
-    return RedirectResponse(url=f"/player/{video_id}", status_code=303)
+    return RedirectResponse(url=f"/player/{video.id}", status_code=303)
 
 
 # --------------------------------------------------------------
