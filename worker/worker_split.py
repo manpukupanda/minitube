@@ -24,7 +24,7 @@ import sys
 import redis
 
 from jobs.split import run_split
-from utils.db import get_connection, get_job, update_job_status
+from utils.db import get_connection, get_job, update_job_status, update_video_status
 
 # ログ設定: すべて stdout/stderr に出力する（コンテナ内にファイルを書かない）
 logging.basicConfig(
@@ -83,12 +83,14 @@ def main() -> None:
 
             # jobs.status を 'processing' に更新する
             update_job_status(conn, job_id, "processing")
+            update_video_status(conn, video_id, "processing")
 
             # ffmpeg による HLS 分割処理を実行する
             run_split(video_id)
 
             # 成功時: jobs.status を 'completed' に更新する
             update_job_status(conn, job_id, "completed")
+            update_video_status(conn, video_id, "ready")
             logger.info("処理完了: job_id=%s, video_id=%s", job_id, video_id)
 
         except Exception as e:
@@ -98,6 +100,7 @@ def main() -> None:
             if conn is not None:
                 try:
                     update_job_status(conn, job_id, "error", error_message)
+                    update_video_status(conn, video_id, "failed")
                 except Exception as db_err:
                     logger.error("エラー状態の保存に失敗しました: %s", db_err)
 
