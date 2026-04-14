@@ -468,6 +468,27 @@
       </form>
     </div>
 
+    <!-- Nginx キャッシュ削除 -->
+    <div class="card">
+      <h3>Nginx キャッシュを削除</h3>
+      <p style="font-size: 0.85rem; color: #888; margin-bottom: 16px;">
+        動画差し替え後も古い映像が表示される場合は、Nginx のキャッシュを手動で削除してください。
+        削除後、次回アクセス時に新しい HLS が配信されます。
+      </p>
+      {% if request.query_params.get('cache_cleared') is not none %}
+      <p style="font-size: 0.85rem; color: #4caf50; margin-bottom: 12px;">
+        ✓ キャッシュを {{ request.query_params.get('cache_cleared') }} 件削除しました。
+      </p>
+      {% endif %}
+      <form
+        action="/api/videos/{{ video_id }}/clear_cache"
+        method="post"
+        onsubmit="return confirm('この動画の Nginx キャッシュを削除しますか？')"
+      >
+        <button type="submit" class="btn btn-secondary">キャッシュを削除する</button>
+      </form>
+    </div>
+
     <!-- 危険ゾーン（削除） -->
     <div class="card danger-zone">
       <h3>動画を削除</h3>

@@ -28,6 +28,8 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+from utils.nginx_cache import delete_nginx_cache_for_video
+
 logger = logging.getLogger(__name__)
 
 # input.mp4 の保存先ディレクトリ（api コンテナと共有ボリューム）
@@ -200,6 +202,12 @@ def run_split(video_id: str) -> None:
         # MinIO に HLS ファイルをアップロードする
         # アップロード失敗時は RuntimeError を送出してジョブを error にする
         _upload_hls_to_minio(video_id, tmp_dir)
+
+        # Nginx キャッシュを削除する（古い HLS が配信されないようにする）
+        # アップロード成功後に削除することで、削除後も古いキャッシュからの配信を防ぐ
+        segment_files = sorted(glob.glob(os.path.join(tmp_dir, "segment*.ts")))
+        segment_names = [os.path.basename(p) for p in segment_files]
+        delete_nginx_cache_for_video(video_id, segment_names)
 
     # 一時ディレクトリは with ブロック終了時に自動削除される
 

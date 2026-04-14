@@ -146,9 +146,13 @@ services:
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-changeme_minio_secret}
       - MINIO_BUCKET=${MINIO_BUCKET:-minitube}
+      # Nginx キャッシュディレクトリ（nginx コンテナと共有ボリューム経由でアクセス）
+      - NGINX_CACHE_DIR=${NGINX_CACHE_DIR:-/tmp/nginx/hls_cache}
     volumes:
       # /videos を api コンテナにマウントし、アップロードファイル（input.mp4）の一時保存先とする
       - videos_data:/videos
+      # Nginx キャッシュを共有ボリューム経由でマウントし、キャッシュ削除 API を有効にする
+      - nginx_cache:/tmp/nginx/hls_cache
     ports:
       - "8000:8000"
     depends_on:
@@ -181,9 +185,13 @@ services:
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-changeme_minio_secret}
       - MINIO_BUCKET=${MINIO_BUCKET:-minitube}
+      # Nginx キャッシュディレクトリ（nginx コンテナと共有ボリューム経由でアクセス）
+      - NGINX_CACHE_DIR=${NGINX_CACHE_DIR:-/tmp/nginx/hls_cache}
     volumes:
       # /videos を worker コンテナにマウントし、input.mp4 の読み込み先とする
       - videos_data:/videos
+      # Nginx キャッシュを共有ボリューム経由でマウントし、動画差し替え後に古いキャッシュを削除する
+      - nginx_cache:/tmp/nginx/hls_cache
     depends_on:
       db:
         condition: service_healthy
@@ -215,21 +223,23 @@ services:
       # nginx.conf をテンプレートとしてマウントする
       # コンテナ起動時に envsubst で変数を置換してから nginx を起動する
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf.template:ro
+      # Nginx キャッシュを共有ボリュームとしてマウントする
+      # Worker/API コンテナからも同じパスでアクセスしてキャッシュを削除できる
+      - nginx_cache:/tmp/nginx/hls_cache
     ports:
       - "80:80"
     depends_on:
       - api
       - minio
     # コンテナ起動時に以下を実行する:
-    #   1. proxy_cache 用ディレクトリを作成
-    #   2. envsubst で ${SECRET_KEY} と ${MINIO_BUCKET} を nginx.conf に埋め込む
-    #   3. nginx を起動する
+    #   1. envsubst で ${SECRET_KEY} と ${MINIO_BUCKET} を nginx.conf に埋め込む
+    #   2. nginx を起動する
+    # proxy_cache 用ディレクトリは nginx_cache ボリュームのマウントにより自動的に存在する
     # '$$SECRET_KEY' / '$$MINIO_BUCKET' の $$ は docker-compose の変数展開を
     # 回避するためのエスケープ。nginx の $uri, $host 等は置換されない。
     command: >
       /bin/sh -c
-      "mkdir -p /tmp/nginx/hls_cache
-      && envsubst '$$SECRET_KEY $$MINIO_BUCKET' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
+      "envsubst '$$SECRET_KEY $$MINIO_BUCKET' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
       && nginx -g 'daemon off;'"
     restart: unless-stopped
 
@@ -238,8 +248,11 @@ services:
 # videos_data: FastAPI（input.mp4 書き込み）・Worker（input.mp4 読み取り）で共有
 #              HLS 生成物は Worker が MinIO に保存するため Nginx には不要
 # minio_data:  MinIO が HLS ファイルを永続保存するボリューム
+# nginx_cache: Nginx proxy_cache の保存先。nginx / worker / api コンテナで共有し、
+#              動画差し替え時に Worker が古いキャッシュを削除できるようにする
 # ----------------------------------------------------------
 volumes:
   videos_data:
   postgres_data:
   minio_data:
+  nginx_cache:
