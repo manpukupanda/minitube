@@ -40,7 +40,10 @@ def get_nginx_cache_path(uri: str, cache_dir: str = NGINX_CACHE_DIR) -> str:
     Returns:
         キャッシュファイルの絶対パス
     """
-    md5 = hashlib.md5(uri.encode()).hexdigest()
+    # MD5 を使用してキャッシュファイルパスを逆算する。
+    # これは Nginx の proxy_cache が内部で行う処理と同一のアルゴリズムであり、
+    # 暗号学的な安全性を目的としたものではなく、キャッシュパスの再現のみを目的とする。
+    md5 = hashlib.md5(uri.encode()).hexdigest()  # noqa: S324
     return os.path.join(cache_dir, md5[-1], md5[-3:-1], md5)
 
 
