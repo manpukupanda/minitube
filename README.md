@@ -233,16 +233,19 @@ Nginx は secure_link 検証後に MinIO へ proxy_pass し、レスポンスを
 ### キャッシュキー方針（重要）
 
 ```nginx
-proxy_cache_key "$scheme$proxy_host$uri";
+proxy_cache_key "$uri";
 ```
 
-**クエリパラメータ（`expires`/`md5`）をキャッシュキーから除外**している。  
+**`$uri`（パスのみ）をキャッシュキーとし、クエリパラメータ（`expires`/`md5`）をキャッシュキーから除外**している。  
 これにより有効期限や署名値が変わっても、同一セグメントファイルは同一キャッシュエントリにヒットする。
 
 **安全性の根拠**:
 - `expires`/`md5` の検証は secure_link が担当し、403 は proxy_cache に到達する前に返される
 - キャッシュに到達するのは検証通過済みリクエストのみ
 - キャッシュキーからクエリを除外しても、不正なリクエストがキャッシュヒットすることはない
+
+**`$uri` をキャッシュキーにする理由**:
+- Worker/API が同じロジックでキャッシュファイルパスを逆算でき、動画差し替え時に古いキャッシュを削除できる
 
 ### キャッシュ状態の確認
 
@@ -258,6 +261,85 @@ proxy_cache_key "$scheme$proxy_host$uri";
 # キャッシュ確認例
 curl -v "http://localhost/videos/{id}/segment000.ts?expires=...&md5=..." 2>&1 | grep X-Cache-Status
 ```
+
+---
+
+## Nginx キャッシュ削除の仕組み
+
+### 背景と課題
+
+Nginx の `proxy_cache` はキャッシュファイルをローカルのファイルシステムに保存する。  
+動画を差し替えて MinIO の HLS を更新しても、Nginx のキャッシュが残っていると古い動画が配信され続ける。  
+Nginx 標準機能では特定キャッシュのみを削除する手段がないが、  
+**キャッシュキー → MD5 → ファイルパス** を逆算すれば削除可能。
+
+### キャッシュファイルパスの逆算
+
+Nginx の `proxy_cache_path levels=1:2` と `proxy_cache_key "$uri"` の組み合わせにより、  
+キャッシュファイルのパスは以下のロジックで一意に決定される:
+
+```python
+import hashlib, os
+
+uri = "/videos/{video_id}/segment000.ts"  # キャッシュキー（$uri と同一）
+md5 = hashlib.md5(uri.encode()).hexdigest()  # 例: "1a3f9c8d7b2e4f6a0c5d8e1f3a7b9c2d"
+
+# levels=1:2 によるディレクトリ構造
+cache_path = os.path.join(
+    "/tmp/nginx/hls_cache",
+    md5[-1],       # 1 文字目のサブディレクトリ（例: "d"）
+    md5[-3:-1],    # 2 文字目のサブディレクトリ（例: "2c"）
+    md5,           # ファイル名（フルハッシュ）
+)
+# → /tmp/nginx/hls_cache/d/2c/1a3f9c8d7b2e4f6a0c5d8e1f3a7b9c2d
+```
+
+### ボリューム共有による削除
+
+Nginx キャッシュディレクトリ（`/tmp/nginx/hls_cache`）を Docker の名前付きボリューム（`nginx_cache`）として  
+nginx / worker / api の 3 コンテナで共有する。これにより各コンテナからキャッシュファイルを直接削除できる。
+
+```yaml
+volumes:
+  nginx_cache:   # nginx / worker / api コンテナで共有
+```
+
+### 動画差し替え時の自動削除（Worker）
+
+`worker/jobs/split.py` の `run_split()` は、MinIO への HLS アップロード成功後に  
+`worker/utils/nginx_cache.py` の `delete_nginx_cache_for_video()` を呼び出して  
+古い Nginx キャッシュを自動的に削除する。
+
+```
+動画差し替えフロー:
+  1. API: 古い HLS を MinIO から削除
+  2. API: 新しい input.mp4 を /videos ボリュームに保存
+  3. API: split ジョブを Redis Queue に enqueue
+  4. Worker: ffmpeg で mp4 → HLS 変換
+  5. Worker: 新しい HLS を MinIO にアップロード
+  6. Worker: Nginx キャッシュを削除  ← 追加
+  7. Worker: DB のジョブ状態を completed に更新
+```
+
+### UI によるキャッシュ手動削除（API）
+
+動画編集ページ（`/videos/{video_id}/edit`）に「キャッシュを削除する」ボタンを設置した。  
+ボタンをクリックすると `POST /api/videos/{video_id}/clear_cache` が呼ばれ、  
+MinIO から HLS ファイル一覧を取得して対応する Nginx キャッシュを削除する。
+
+```
+API フロー:
+  POST /api/videos/{id}/clear_cache
+    → MinIO から hls/{id}/ 以下のオブジェクト一覧を取得
+    → 各 URI に対してキャッシュパスを計算して削除
+    → /videos/{id}/edit?cache_cleared={N} へリダイレクト
+```
+
+### 環境変数
+
+| 変数 | デフォルト値 | 説明 |
+|------|------------|------|
+| `NGINX_CACHE_DIR` | `/tmp/nginx/hls_cache` | Nginx キャッシュディレクトリのパス |
 
 ---
 
@@ -329,9 +411,10 @@ project/
 │   ├── Dockerfile          Worker コンテナのビルド定義（ffmpeg 含む）
 │   ├── worker_split.py     Redis Queue 監視・HLS 変換オーケストレーション
 │   ├── jobs/
-│   │   └── split.py        ffmpeg HLS 変換・MinIO アップロード処理
+│   │   └── split.py        ffmpeg HLS 変換・MinIO アップロード・Nginx キャッシュ削除
 │   └── utils/
-│       └── db.py           DB アクセスユーティリティ（ジョブ状態 UPDATE）
+│       ├── db.py           DB アクセスユーティリティ（ジョブ状態 UPDATE）
+│       └── nginx_cache.py  Nginx キャッシュ削除ユーティリティ（MD5 パス逆算）
 └── videos/
     └── （input.mp4 一時保存のみ: docker volume で管理）
 ```
@@ -578,6 +661,7 @@ docker compose logs -f
 | POST | `/api/videos/{id}/update` | 動画メタ情報更新（title/description/category/visibility） | 必要（オーナー/admin） |
 | POST | `/api/videos/{id}/delete` | 動画削除（HLS・DB レコード削除） | 必要（オーナー/admin） |
 | POST | `/api/videos/{id}/replace` | 動画ファイル差し替え（HLS 再生成） | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/clear_cache` | Nginx HLS キャッシュ削除 | 必要（オーナー/admin） |
 | GET | `/player/{id}` | プレイヤーページ | 必要（公開動画は不要） |
 | GET | `/api/job/{job_id}` | ジョブ状態取得（queued/processing/completed/error） | 不要 |
 | GET | `/api/videos/{id}/url` | 署名付き HLS URL 取得（`/api/videos/{id}/playlist` を指す） | 必要 |
