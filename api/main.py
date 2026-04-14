@@ -549,6 +549,12 @@ async def api_profile_update(
         ext = "png" if content_type == "image/png" else "jpg"
         icon_key = f"user-icons/{db_user.id}.{ext}"
         s3 = _get_s3_client()
+        # 拡張子が変わった場合は古いアイコンを削除する
+        if db_user.icon_path and db_user.icon_path != icon_key:
+            try:
+                s3.delete_object(Bucket=ICON_BUCKET, Key=db_user.icon_path)
+            except ClientError:
+                pass
         try:
             s3.put_object(
                 Bucket=ICON_BUCKET,
