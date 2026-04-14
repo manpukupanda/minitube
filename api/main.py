@@ -481,19 +481,12 @@ ICON_ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg"}
 
 
 def _get_icon_url(icon_path: str | None) -> str | None:
-    """MinIO のアイコンオブジェクトキーから署名付き URL を生成して返す。"""
+    """MinIO のアイコンオブジェクトキーから Nginx 経由でアクセスできる URL パスを返す。"""
     if not icon_path:
         return None
-    s3 = _get_s3_client()
-    try:
-        url = s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": ICON_BUCKET, "Key": icon_path},
-            ExpiresIn=3600,
-        )
-        return url
-    except ClientError:
-        return None
+    # icon_path は "user-icons/{user_id}.{ext}" 形式
+    # Nginx の /user-icons/ ロケーションが MinIO へ proxy_pass する
+    return f"/{icon_path}"
 
 
 @app.get("/profile", response_class=HTMLResponse)
