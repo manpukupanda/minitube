@@ -1,0 +1,217 @@
+# アーキテクチャ
+
+## コンテナ構成図
+
+```
+ブラウザ
+   │
+   │ HTTP (ポート 80)
+   ▼
+┌─────────────────────────────┐
+│         Nginx コンテナ        │
+│                               │
+│  /api/*        → FastAPI へ proxy │
+│  /videos/      → secure_link 検証 │
+│                 → MinIO proxy_pass│
+│                 → proxy_cache     │
+│  /thumbnails/  → MinIO proxy_pass │
+│  /user-icons/  → MinIO proxy_pass │
+└──────┬──────────┬────────────┘
+       │          │ proxy_pass (secure_link 検証済 / 直接)
+       │ proxy    ▼
+       │  ┌──────────────────────────────┐
+       │  │       MinIO コンテナ           │
+       │  │                               │
+       │  │  バケット: minitube            │
+       │  │  hls/{video_id}/playlist.m3u8 │
+       │  │  hls/{video_id}/segment*.ts   │
+       │  │  videos/{video_id}/thumbnails/│
+       │  │    {thumbnail_id}.jpg         │
+       │  │  user-icons/{user_id}.{ext}   │
+       │  └──────────────────────────────┘
+       │
+       ▼
+┌─────────────────────────────┐
+│       FastAPI コンテナ        │
+│                               │
+│  /login    ログインページ     │
+│  /upload   アップロード       │
+│  /player/  プレイヤーページ  │
+│  /api/...  認証・署名・状態  │
+│  /api/videos/{id}/playlist   │
+│    MinIO から m3u8 を取得し  │
+│    署名付きセグメントURLを埋込│
+│                               │
+│  SQLAlchemy: DB アクセス      │
+│  redis-py: ジョブ enqueue    │
+│  boto3: MinIO 読み込み        │
+└──────┬──────┬────────────────┘
+       │      │
+       │ Vol  │ RPUSH job_id
+       │      ▼
+       │  ┌───────────────────┐
+       │  │   Redis コンテナ   │
+       │  │  split_jobs キュー │
+       │  └────────┬──────────┘
+       │           │ BLPOP
+       │           ▼
+       │  ┌──────────────────────────┐
+       │  │     Worker コンテナ       │
+       │  │                           │
+       │  │  ffmpeg: mp4 → HLS 変換  │
+       │  │  ffmpeg: サムネイル生成   │
+       │  │  boto3: MinIO にアップロード│
+       │  │  DB: ジョブ状態を UPDATE  │
+       │  └────────┬─────────────────┘
+       │           │ boto3 upload
+       │           ▼
+       │  ┌──────────────────────────────┐
+       │  │       MinIO コンテナ           │
+       │  │  hls/{video_id}/playlist.m3u8 │
+       │  │  hls/{video_id}/segment*.ts   │
+       │  │  videos/{video_id}/thumbnails/│
+       │  │    {thumbnail_id}.jpg         │
+       │  └──────────────────────────────┘
+       │
+       ▼
+┌──────────────────────┐  ┌─────────────────────────────┐
+│  /videos (共有 Vol)  │  │    PostgreSQL コンテナ（db）  │
+│                       │  │                               │
+│  input.mp4 のみ一時   │  │  videos テーブル              │
+│  保存（変換後削除）   │  │  id, title, created_at        │
+│  HLS はMinIOに保存  │  │                               │
+└──────────────────────┘  │  jobs テーブル                │
+                           │  id, video_id, type, status   │
+                           │                               │
+                           │  thumbnails テーブル           │
+                           │  id, video_id, url, type,     │
+                           │  active, created_at            │
+                           └─────────────────────────────┘
+```
+
+## 各コンテナの役割
+
+| コンテナ | 役割 |
+|---------|------|
+| `nginx` | リバースプロキシ。secure_link 検証、MinIO への proxy_pass、proxy_cache |
+| `api` | FastAPI。認証・動画管理・署名付き URL 生成 |
+| `worker` | ffmpeg HLS 変換・サムネイル生成・MinIO アップロード |
+| `db` | PostgreSQL。動画・ジョブ・ユーザ情報の永続化 |
+| `redis` | Redis。変換ジョブキュー（`split_jobs`） |
+| `minio` | MinIO（S3 互換）。HLS ファイル・サムネイル・アイコンの永続保存 |
+| `createbuckets` | 初回起動時に MinIO バケットを作成して終了 |
+
+## ディレクトリ構成
+
+```
+project/
+├── docker-compose.yml      Docker サービス定義（7コンテナ構成）
+├── .env.example            環境変数のサンプル（.env にコピーして使う）
+├── README.md               このファイル
+├── docs/                   詳細ドキュメント
+├── nginx/
+│   └── nginx.conf          Nginx 設定（envsubst テンプレート）
+├── api/
+│   ├── Dockerfile          FastAPI コンテナのビルド定義
+│   ├── entrypoint.sh       コンテナ起動スクリプト（マイグレーション → uvicorn）
+│   ├── requirements.txt    Python 依存パッケージ
+│   ├── main.py             FastAPI アプリ本体
+│   ├── alembic.ini         Alembic 設定ファイル
+│   ├── alembic/
+│   │   ├── env.py          マイグレーション環境設定
+│   │   ├── script.py.mako  マイグレーションファイルテンプレート
+│   │   └── versions/       マイグレーションファイル群
+│   └── templates/
+│       ├── login.html      ログインページ
+│       ├── upload.html     アップロードページ（ジョブ状態ポーリング付き）
+│       └── player.html     プレイヤーページ（hls.js・ジョブ状態ポーリング付き）
+├── worker/
+│   ├── Dockerfile          Worker コンテナのビルド定義（ffmpeg 含む）
+│   ├── worker_split.py     Redis Queue 監視・HLS 変換オーケストレーション
+│   ├── jobs/
+│   │   └── split.py        ffmpeg HLS 変換・サムネイル生成・MinIO アップロード・Nginx キャッシュ削除
+│   └── utils/
+│       ├── db.py           DB アクセスユーティリティ（ジョブ状態 UPDATE・サムネイル INSERT）
+│       ├── id_generator.py Base62 ID 生成ユーティリティ（Worker 用）
+│       └── nginx_cache.py  Nginx キャッシュ削除ユーティリティ（MD5 パス逆算）
+└── videos/
+    └── （input.mp4 一時保存のみ: docker volume で管理）
+```
+
+## API エンドポイント一覧
+
+| メソッド | パス | 説明 | 認証 |
+|---------|------|------|------|
+| GET | `/` | ルート（/videos へリダイレクト） | - |
+| GET | `/login` | ログインページ | 不要 |
+| POST | `/api/login` | ログイン処理 | 不要 |
+| GET | `/logout` | ログアウト | 不要 |
+| GET | `/register` | ユーザ登録ページ | 不要 |
+| POST | `/api/register` | ユーザ登録 | 不要 |
+| GET | `/videos` | 動画一覧ページ | 不要（公開動画） |
+| GET | `/upload` | アップロードページ | 必要（uploader/admin） |
+| POST | `/api/upload` | 動画アップロード → 編集画面へリダイレクト | 必要（uploader/admin） |
+| GET | `/videos/{id}/edit` | 動画編集ページ | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/update` | 動画メタ情報更新（title/description/category/visibility） | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/delete` | 動画削除（HLS・DB レコード削除） | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/replace` | 動画ファイル差し替え（HLS 再生成） | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/clear_cache` | Nginx HLS キャッシュ削除 | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/thumbnails/{thumb_id}/activate` | サムネイルの切り替え（active 設定） | 必要（オーナー/admin） |
+| GET | `/player/{id}` | プレイヤーページ | 必要（公開動画は不要） |
+| GET | `/api/job/{job_id}` | ジョブ状態取得（queued/processing/completed/error） | 不要 |
+| GET | `/api/videos/{id}/url` | 署名付き HLS URL 取得（`/api/videos/{id}/playlist` を指す） | 必要 |
+| GET | `/api/videos/{id}/playlist` | MinIO から playlist.m3u8 を取得し署名付きセグメント URL を埋め込んで返す | 必要 |
+| GET | `/videos/{id}/*.ts` | Nginx が secure_link 検証後 MinIO から TS セグメントを返す（FastAPI 経由なし） | 不要（署名） |
+| GET | `/profile` | プロフィールページ | 必要 |
+| GET | `/admin/users` | Admin 専用ユーザ管理ページ | 必要（admin） |
+| POST | `/api/admin/users/{id}/roles` | ロール付与 | 必要（admin） |
+| POST | `/api/admin/users/{id}/roles/{role}/delete` | ロール削除 | 必要（admin） |
+| POST | `/api/admin/videos/{id}/permissions` | 動画視聴権限付与 | 必要（admin/オーナー） |
+| POST | `/api/admin/videos/{id}/permissions/{uid}/delete` | 動画視聴権限削除 | 必要（admin/オーナー） |
+| GET | `/admin/categories` | カテゴリ管理ページ | 必要（admin） |
+| POST | `/api/admin/categories` | カテゴリ作成 | 必要（admin） |
+| POST | `/api/admin/categories/{id}/update` | カテゴリ名変更 | 必要（admin） |
+| POST | `/api/admin/categories/{id}/delete` | カテゴリ削除（動画紐付きは不可） | 必要（admin） |
+
+## データベーススキーマ
+
+### videos テーブル
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| `id` | CHAR(11) | 動画の一意識別子（Base62 11文字） |
+| `title` | VARCHAR | タイトル |
+| `description` | VARCHAR | 説明（任意） |
+| `category_id` | CHAR(11) | カテゴリ ID（FK → categories.id, ON DELETE SET NULL） |
+| `visibility` | VARCHAR | 公開設定（`public` / `private`） |
+| `status` | VARCHAR | 変換ステータス（`processing` / `ready` / `failed`） |
+| `owner_user_id` | VARCHAR | オーナーユーザ ID（FK → users.id） |
+| `created_at` | BIGINT | 作成日時（UNIX タイムスタンプ） |
+| `updated_at` | BIGINT | 更新日時（UNIX タイムスタンプ） |
+
+### categories テーブル
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| `id` | CHAR(11) | カテゴリの一意識別子（Base62 11文字） |
+| `name` | VARCHAR | カテゴリ名（ユニーク） |
+| `created_at` | BIGINT | 作成日時（UNIX タイムスタンプ） |
+
+### thumbnails テーブル（マイグレーション: `6f7g8h9i0j1k`）
+
+| カラム | 型 | NULL 許可 | 説明 |
+|--------|-----|----------|------|
+| `id` | CHAR(11) | - | サムネイルの一意識別子（Base62 11文字、PK） |
+| `video_id` | CHAR(11) | - | FK → videos.id（ON DELETE CASCADE） |
+| `url` | TEXT | - | Nginx 経由のサムネイル URL（`/thumbnails/{video_id}/{id}.jpg`） |
+| `type` | VARCHAR | - | サムネイル種別（`fixed` / `representative` / `custom`） |
+| `active` | BOOLEAN | - | 選択中のサムネイル（`true` は常に1件） |
+| `created_at` | BIGINT | - | 作成日時（UNIX タイムスタンプ） |
+
+#### サムネイル種別
+
+| `type` | 生成タイミング | 説明 |
+|--------|------------|------|
+| `fixed` | HLS 変換後に自動生成 | 5 秒地点のフレーム（duration < 5 秒の場合は duration/2） |
+| `representative` | HLS 変換後に自動生成 | ffmpeg の `thumbnail` フィルタが選んだ代表フレーム |
+| `custom` | 将来的なユーザアップロード用 | 現在は未実装 |
