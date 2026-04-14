@@ -171,7 +171,7 @@ def _get_video_duration(input_path: str) -> float:
         return 10.0
 
 
-def _generate_thumbnails(video_id: str, input_path: str, tmp_dir: str) -> tuple[str, str]:
+def _generate_thumbnails(video_id: str, input_path: str, tmp_dir: str) -> tuple[str, str | None]:
     """
     固定秒サムネイルと代表フレームサムネイルを生成する。
 
@@ -184,7 +184,7 @@ def _generate_thumbnails(video_id: str, input_path: str, tmp_dir: str) -> tuple[
         tmp_dir:    一時ディレクトリのパス（サムネイルの出力先）
 
     Returns:
-        tuple: (固定秒サムネイルのパス, 代表フレームサムネイルのパス)
+        tuple: (固定秒サムネイルのパス, 代表フレームサムネイルのパス or None)
 
     Raises:
         RuntimeError: ffmpeg の実行に失敗した場合

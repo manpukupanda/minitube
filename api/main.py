@@ -746,7 +746,7 @@ async def videos_page(request: Request, db: Session = Depends(get_db)):
                 )
             )
             active_thumb = db.query(Thumbnail).filter(
-                Thumbnail.video_id == v.id, Thumbnail.active == True  # noqa: E712
+                Thumbnail.video_id == v.id, Thumbnail.active.is_(True)
             ).first()
             visible_videos.append({
                 "id": v.id,
