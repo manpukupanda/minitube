@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Nginx キャッシュディレクトリ（nginx コンテナと共有ボリューム経由でアクセス）
 NGINX_CACHE_DIR = os.environ.get("NGINX_CACHE_DIR", "/tmp/nginx/hls_cache")
-
+MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "minitube")
 
 def get_nginx_cache_path(uri: str, cache_dir: str = NGINX_CACHE_DIR) -> str:
     """
@@ -88,12 +88,12 @@ def delete_nginx_cache_for_video(
     deleted = 0
 
     # playlist.m3u8 のキャッシュを削除する
-    if delete_nginx_cache_file(f"/videos/{video_id}/playlist.m3u8", cache_dir):
+    if delete_nginx_cache_file(f"/{MINIO_BUCKET}/hls/{video_id}/playlist.m3u8", cache_dir):
         deleted += 1
 
     # 各セグメントのキャッシュを削除する
     for name in segment_names:
-        if delete_nginx_cache_file(f"/videos/{video_id}/{name}", cache_dir):
+        if delete_nginx_cache_file(f"/{MINIO_BUCKET}/hls/{video_id}/{name}", cache_dir):
             deleted += 1
 
     logger.info(

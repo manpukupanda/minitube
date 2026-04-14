@@ -1177,7 +1177,7 @@ def _delete_nginx_cache_for_video(video_id: str) -> int:
                 # → URI: /videos/{video_id}/segment000.ts
                 key = obj["Key"]
                 filename = key[len(prefix):]
-                uri = f"/videos/{video_id}/{filename}"
+                uri = f"/{bucket}/hls/{video_id}/{filename}"
                 path = _get_nginx_cache_path(uri)
                 if os.path.exists(path):
                     try:
