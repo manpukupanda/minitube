@@ -189,9 +189,14 @@ def _generate_thumbnails(video_id: str, input_path: str, tmp_dir: str) -> tuple[
     Raises:
         RuntimeError: ffmpeg の実行に失敗した場合
     """
+    
     duration = _get_video_duration(input_path)
-    ss = 5.0 if duration >= 5.0 else duration / 2.0
-
+    SAFE_MARGIN = 0.1  # 100ms くらい
+    if duration > 5.0 + SAFE_MARGIN:
+        ss = 5.0
+    else:
+        ss = max(0.0, duration / 2.0)
+    
     fixed_path = os.path.join(tmp_dir, "thumb_fixed.jpg")
     rep_path = os.path.join(tmp_dir, "thumb_rep.jpg")
 
@@ -206,6 +211,7 @@ def _generate_thumbnails(video_id: str, input_path: str, tmp_dir: str) -> tuple[
         fixed_path,
     ]
     result = subprocess.run(fixed_cmd, capture_output=True)
+
     if result.returncode != 0:
         raise RuntimeError(
             f"固定秒サムネイルの生成に失敗しました（video_id={video_id}, ss={ss}, "
