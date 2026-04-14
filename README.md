@@ -11,9 +11,10 @@
 - **認証**: FastAPI の Cookie セッション（メールアドレス + bcrypt パスワード認証）
 - **RBAC**: admin / uploader / viewer の 3 ロールによるアクセス制御
 - **変換**: Worker コンテナが ffmpeg で mp4 → HLS（playlist.m3u8 + segment*.ts）に非同期変換
+- **サムネイル**: HLS 変換後に ffmpeg でサムネイルを2種（固定秒・代表フレーム）自動生成し MinIO に保存。動画編集画面で切り替え可能
 - **キュー**: Redis Queue で API から Worker へ変換ジョブを受け渡す
-- **保存**: Worker が変換後の HLS ファイルを **MinIO**（S3 互換オブジェクトストレージ）に永続保存
-- **配信**: Nginx が secure_link_md5 検証後に **MinIO へ直接 proxy_pass**（proxy_cache 付き）
+- **保存**: Worker が変換後の HLS ファイルおよびサムネイルを **MinIO**（S3 互換オブジェクトストレージ）に永続保存
+- **配信**: Nginx が secure_link_md5 検証後に **MinIO へ直接 proxy_pass**（proxy_cache 付き）。サムネイルも Nginx 経由で配信
 - **保護**: 署名付きURL（1 時間有効）。公開動画は未ログインでも視聴可能。非公開動画は権限保有者のみ視聴可能
 
 ---
@@ -113,6 +114,35 @@ user-icons/
 
 ---
 
+## サムネイル自動生成機能
+
+動画アップロード後の HLS 変換が完了すると、Worker が自動でサムネイルを2種類生成し MinIO に保存する。
+
+### サムネイル種別
+
+| 種別 | `type` | 生成方法 | `active` |
+|------|--------|---------|---------|
+| 固定秒サムネイル | `fixed` | `duration >= 5` → 5秒地点、`< 5` → `duration/2` | `true`（デフォルト） |
+| 代表フレームサムネイル | `representative` | ffmpeg `thumbnail` フィルタ（シーン的に代表的なフレーム） | `false` |
+
+### ffmpeg コマンド例
+
+```bash
+# 固定秒サムネイル（5秒地点）
+ffmpeg -ss 5 -i input.mp4 -vframes 1 -vf "scale=480:-1" thumb_fixed.jpg
+
+# 代表フレームサムネイル
+ffmpeg -i input.mp4 -vf "thumbnail,scale=480:-1" -frames:v 1 thumb_rep.jpg
+```
+
+### 動画編集画面での切り替え
+
+- `/videos/{id}/edit` にサムネイルグリッドが表示される
+- 「このサムネイルを使う」ボタンをクリックすると `POST /api/videos/{id}/thumbnails/{thumb_id}/activate` が呼ばれ active が切り替わる
+- 動画一覧（`/videos`）では active なサムネイルがサムネイル列に表示される
+
+---
+
 ## コンテナ構成図
 
 ```
@@ -123,12 +153,14 @@ user-icons/
 ┌─────────────────────────────┐
 │         Nginx コンテナ        │
 │                               │
-│  /api/*    → FastAPI へ proxy │
-│  /videos/  → secure_link 検証 │
-│             → MinIO proxy_pass│
-│             → proxy_cache     │
+│  /api/*        → FastAPI へ proxy │
+│  /videos/      → secure_link 検証 │
+│                 → MinIO proxy_pass│
+│                 → proxy_cache     │
+│  /thumbnails/  → MinIO proxy_pass │
+│  /user-icons/  → MinIO proxy_pass │
 └──────┬──────────┬────────────┘
-       │          │ proxy_pass (secure_link 検証済)
+       │          │ proxy_pass (secure_link 検証済 / 直接)
        │ proxy    ▼
        │  ┌──────────────────────────────┐
        │  │       MinIO コンテナ           │
@@ -136,6 +168,9 @@ user-icons/
        │  │  バケット: minitube            │
        │  │  hls/{video_id}/playlist.m3u8 │
        │  │  hls/{video_id}/segment*.ts   │
+       │  │  videos/{video_id}/thumbnails/│
+       │  │    {thumbnail_id}.jpg         │
+       │  │  user-icons/{user_id}.{ext}   │
        │  └──────────────────────────────┘
        │
        ▼
@@ -167,6 +202,7 @@ user-icons/
        │  │     Worker コンテナ       │
        │  │                           │
        │  │  ffmpeg: mp4 → HLS 変換  │
+       │  │  ffmpeg: サムネイル生成   │
        │  │  boto3: MinIO にアップロード│
        │  │  DB: ジョブ状態を UPDATE  │
        │  └────────┬─────────────────┘
@@ -176,6 +212,8 @@ user-icons/
        │  │       MinIO コンテナ           │
        │  │  hls/{video_id}/playlist.m3u8 │
        │  │  hls/{video_id}/segment*.ts   │
+       │  │  videos/{video_id}/thumbnails/│
+       │  │    {thumbnail_id}.jpg         │
        │  └──────────────────────────────┘
        │
        ▼
@@ -184,9 +222,13 @@ user-icons/
 │                       │  │                               │
 │  input.mp4 のみ一時   │  │  videos テーブル              │
 │  保存（変換後削除）   │  │  id, title, created_at        │
-│  HLS は MinIO に保存  │  │                               │
+│  HLS はMinIOに保存  │  │                               │
 └──────────────────────┘  │  jobs テーブル                │
                            │  id, video_id, type, status   │
+                           │                               │
+                           │  thumbnails テーブル           │
+                           │  id, video_id, url, type,     │
+                           │  active, created_at            │
                            └─────────────────────────────┘
 ```
 
@@ -280,12 +322,19 @@ hls/{video_id}/segment001.ts
 ...
 ```
 
+サムネイル画像は以下のキーで保存される:
+
+```
+videos/{video_id}/thumbnails/{thumbnail_id}.jpg
+```
+
 Nginx の URI から MinIO パスへの対応:
 
 | Nginx リクエスト URI | MinIO オブジェクトキー |
 |---------------------|----------------------|
 | `/videos/{id}/segment000.ts` | `hls/{id}/segment000.ts` |
 | `/videos/{id}/segment001.ts` | `hls/{id}/segment001.ts` |
+| `/thumbnails/{id}/{thumbnail_id}.jpg` | `videos/{id}/thumbnails/{thumbnail_id}.jpg` |
 
 ---
 
@@ -415,12 +464,17 @@ MinIO バケット（`minitube`）内のオブジェクト:
 
 ```
 hls/
-└── a1b2c3d4-e5f6-7890-abcd-ef1234567890/   ← 動画 UUID
-    ├── playlist.m3u8                         ← HLS プレイリスト
-    ├── segment000.ts                         ← セグメント 0（0〜4 秒）
-    ├── segment001.ts                         ← セグメント 1（4〜8 秒）
-    ├── segment002.ts                         ← セグメント 2（8〜12 秒）
+└── a1b2c3d4e5f/                          ← 動画 ID（Base62 11文字）
+    ├── playlist.m3u8                      ← HLS プレイリスト
+    ├── segment000.ts                      ← セグメント 0（0〜4 秒）
+    ├── segment001.ts                      ← セグメント 1（4〜8 秒）
+    ├── segment002.ts                      ← セグメント 2（8〜12 秒）
     └── ...
+videos/
+└── a1b2c3d4e5f/                          ← 動画 ID（Base62 11文字）
+    └── thumbnails/
+        ├── b2c3d4e5f6g.jpg               ← 固定秒サムネイル（active=true）
+        └── c3d4e5f6g7h.jpg               ← 代表フレームサムネイル（active=false）
 ```
 
 ローカルの `/videos` ボリュームには `input.mp4` のみ一時的に保存され、変換後に削除される。
@@ -477,9 +531,10 @@ project/
 │   ├── Dockerfile          Worker コンテナのビルド定義（ffmpeg 含む）
 │   ├── worker_split.py     Redis Queue 監視・HLS 変換オーケストレーション
 │   ├── jobs/
-│   │   └── split.py        ffmpeg HLS 変換・MinIO アップロード・Nginx キャッシュ削除
+│   │   └── split.py        ffmpeg HLS 変換・サムネイル生成・MinIO アップロード・Nginx キャッシュ削除
 │   └── utils/
-│       ├── db.py           DB アクセスユーティリティ（ジョブ状態 UPDATE）
+│       ├── db.py           DB アクセスユーティリティ（ジョブ状態 UPDATE・サムネイル INSERT）
+│       ├── id_generator.py Base62 ID 生成ユーティリティ（Worker 用）
 │       └── nginx_cache.py  Nginx キャッシュ削除ユーティリティ（MD5 パス逆算）
 └── videos/
     └── （input.mp4 一時保存のみ: docker volume で管理）
@@ -728,6 +783,7 @@ docker compose logs -f
 | POST | `/api/videos/{id}/delete` | 動画削除（HLS・DB レコード削除） | 必要（オーナー/admin） |
 | POST | `/api/videos/{id}/replace` | 動画ファイル差し替え（HLS 再生成） | 必要（オーナー/admin） |
 | POST | `/api/videos/{id}/clear_cache` | Nginx HLS キャッシュ削除 | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/thumbnails/{thumb_id}/activate` | サムネイルの切り替え（active 設定） | 必要（オーナー/admin） |
 | GET | `/player/{id}` | プレイヤーページ | 必要（公開動画は不要） |
 | GET | `/api/job/{job_id}` | ジョブ状態取得（queued/processing/completed/error） | 不要 |
 | GET | `/api/videos/{id}/url` | 署名付き HLS URL 取得（`/api/videos/{id}/playlist` を指す） | 必要 |
@@ -752,10 +808,10 @@ docker compose logs -f
 
 | カラム | 型 | 説明 |
 |--------|-----|------|
-| `id` | VARCHAR | 動画の一意識別子（UUID v4） |
+| `id` | CHAR(11) | 動画の一意識別子（Base62 11文字） |
 | `title` | VARCHAR | タイトル |
 | `description` | VARCHAR | 説明（任意） |
-| `category_id` | VARCHAR | カテゴリ ID（FK → categories.id, ON DELETE SET NULL） |
+| `category_id` | CHAR(11) | カテゴリ ID（FK → categories.id, ON DELETE SET NULL） |
 | `visibility` | VARCHAR | 公開設定（`public` / `private`） |
 | `status` | VARCHAR | 変換ステータス（`processing` / `ready` / `failed`） |
 | `owner_user_id` | VARCHAR | オーナーユーザ ID（FK → users.id） |
@@ -766,9 +822,28 @@ docker compose logs -f
 
 | カラム | 型 | 説明 |
 |--------|-----|------|
-| `id` | VARCHAR | カテゴリの一意識別子（UUID v4） |
+| `id` | CHAR(11) | カテゴリの一意識別子（Base62 11文字） |
 | `name` | VARCHAR | カテゴリ名（ユニーク） |
 | `created_at` | BIGINT | 作成日時（UNIX タイムスタンプ） |
+
+### thumbnails テーブルのカラム（マイグレーション: `6f7g8h9i0j1k`）
+
+| カラム | 型 | NULL 許可 | 説明 |
+|--------|-----|----------|------|
+| `id` | CHAR(11) | - | サムネイルの一意識別子（Base62 11文字、PK） |
+| `video_id` | CHAR(11) | - | FK → videos.id（ON DELETE CASCADE） |
+| `url` | TEXT | - | Nginx 経由のサムネイル URL（`/thumbnails/{video_id}/{id}.jpg`） |
+| `type` | VARCHAR | - | サムネイル種別（`fixed` / `representative` / `custom`） |
+| `active` | BOOLEAN | - | 選択中のサムネイル（`true` は常に1件） |
+| `created_at` | BIGINT | - | 作成日時（UNIX タイムスタンプ） |
+
+#### サムネイル種別
+
+| `type` | 生成タイミング | 説明 |
+|--------|------------|------|
+| `fixed` | HLS 変換後に自動生成 | 5 秒地点のフレーム（duration < 5 秒の場合は duration/2） |
+| `representative` | HLS 変換後に自動生成 | ffmpeg の `thumbnail` フィルタが選んだ代表フレーム |
+| `custom` | 将来的なユーザアップロード用 | 現在は未実装 |
 
 ### 動画ステータスの遷移
 
@@ -783,12 +858,15 @@ docker compose logs -f
 ## 動画アップロード → 編集画面への遷移フロー
 
 1. Uploader が `/upload` から mp4 をアップロード
-2. `video_id`（UUID）が発行され、`videos.status = "processing"` に設定
+2. `video_id`（Base62 11文字）が発行され、`videos.status = "processing"` に設定
 3. HLS 変換ジョブが Redis Queue に登録される（`jobs.status = "queued"`）
 4. **動画編集画面 `/videos/{video_id}/edit` へ自動遷移**
 5. 編集画面でタイトル・説明・カテゴリ・公開設定を入力・保存
-6. Worker が HLS 変換完了後、`videos.status = "ready"` に更新
-7. 編集画面のステータスバッジが自動更新され「▶ 再生する」リンクが表示される
+6. Worker が HLS 変換を完了し、固定秒サムネイルと代表フレームサムネイルを MinIO に保存
+7. Worker が `thumbnails` テーブルに2件レコードを作成（`fixed` が `active=true`）
+8. `videos.status = "ready"` に更新
+9. 編集画面のステータスバッジが自動更新され「▶ 再生する」リンクが表示される
+10. サムネイルグリッドが表示され、「このサムネイルを使う」ボタンで切り替え可能
 
 ---
 
