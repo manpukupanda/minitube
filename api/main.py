@@ -67,7 +67,7 @@ from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from passlib.context import CryptContext
-from sqlalchemy import BigInteger, Column, ForeignKey, String, UniqueConstraint, create_engine
+from sqlalchemy import BigInteger, Boolean, Column, ForeignKey, String, Text, UniqueConstraint, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -180,6 +180,17 @@ class VideoPermission(Base):
     __tablename__ = "video_permissions"
     user_id = Column(String, ForeignKey("users.id"), primary_key=True)
     video_id = Column(String, ForeignKey("videos.id"), primary_key=True)
+
+
+class Thumbnail(Base):
+    """動画サムネイルを保持する ORM モデル（video : thumbnail = 1 : n）。"""
+    __tablename__ = "thumbnails"
+    id = Column(String, primary_key=True)
+    video_id = Column(String, ForeignKey("videos.id", ondelete="CASCADE"), nullable=False)
+    url = Column(Text, nullable=False)
+    type = Column(String, nullable=False)
+    active = Column(Boolean, nullable=False, default=False)
+    created_at = Column(BigInteger, nullable=False)
 
 
 def get_db():
@@ -734,6 +745,9 @@ async def videos_page(request: Request, db: Session = Depends(get_db)):
                     or v.owner_user_id == current_user["user_id"]
                 )
             )
+            active_thumb = db.query(Thumbnail).filter(
+                Thumbnail.video_id == v.id, Thumbnail.active == True  # noqa: E712
+            ).first()
             visible_videos.append({
                 "id": v.id,
                 "title": v.title,
@@ -742,6 +756,7 @@ async def videos_page(request: Request, db: Session = Depends(get_db)):
                 "created_at": v.created_at,
                 "status": status,
                 "can_edit": can_edit,
+                "thumbnail_url": active_thumb.url if active_thumb else None,
             })
     return templates.TemplateResponse(
         request,
@@ -977,6 +992,24 @@ def _delete_hls_from_minio(video_id: str) -> None:
         pass
 
 
+def _delete_thumbnails_from_minio(video_id: str, db: Session) -> None:
+    """MinIO から指定動画のサムネイルファイルをすべて削除する。"""
+    bucket = os.environ.get("MINIO_BUCKET", "minitube")
+    s3 = _get_s3_client()
+    prefix = f"videos/{video_id}/thumbnails/"
+    try:
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            objects = page.get("Contents", [])
+            if objects:
+                s3.delete_objects(
+                    Bucket=bucket,
+                    Delete={"Objects": [{"Key": obj["Key"]} for obj in objects]},
+                )
+    except ClientError:
+        pass
+
+
 # ==============================================================
 # カテゴリ管理（Admin 専用）
 # ==============================================================
@@ -1095,6 +1128,7 @@ async def video_edit_page(
         u = db.query(User).filter(User.id == p.user_id).first()
         if u:
             permissions.append({"user_id": p.user_id, "email": u.email})
+    thumbnails = db.query(Thumbnail).filter(Thumbnail.video_id == video.id).order_by(Thumbnail.created_at).all()
     return templates.TemplateResponse(
         request,
         "video_edit.html",
@@ -1108,6 +1142,7 @@ async def video_edit_page(
             "job_id": job_id,
             "categories": [{"id": c.id, "name": c.name} for c in all_categories],
             "permissions": permissions,
+            "thumbnails": [{"id": t.id, "url": t.url, "type": t.type, "active": t.active} for t in thumbnails],
             "current_user": current_user,
             "is_admin": "admin" in current_user["roles"],
         },
@@ -1164,12 +1199,16 @@ async def api_video_delete(
         raise Forbidden()
     # MinIO から HLS を削除する
     _delete_hls_from_minio(video.id)
+    # MinIO からサムネイルを削除する
+    _delete_thumbnails_from_minio(video.id, db)
     # input.mp4 が残っている場合はローカルからも削除する
     local_dir = os.path.join(VIDEOS_DIR, video.id)
     if os.path.exists(local_dir):
         shutil.rmtree(local_dir, ignore_errors=True)
     # VideoPermission を削除する
     db.query(VideoPermission).filter(VideoPermission.video_id == video.id).delete()
+    # Thumbnail を削除する
+    db.query(Thumbnail).filter(Thumbnail.video_id == video.id).delete()
     # Job を削除する
     db.query(Job).filter(Job.video_id == video.id).delete()
     # Video を削除する
@@ -1197,6 +1236,10 @@ async def api_video_replace(
     now = int(time.time())
     # 古い HLS を MinIO から削除する
     _delete_hls_from_minio(video.id)
+    # 古いサムネイルを MinIO と DB から削除する
+    _delete_thumbnails_from_minio(video.id, db)
+    db.query(Thumbnail).filter(Thumbnail.video_id == video.id).delete()
+    db.commit()
     # 新しい input.mp4 を保存する
     output_dir = os.path.join(VIDEOS_DIR, video.id)
     os.makedirs(output_dir, exist_ok=True)
@@ -1316,3 +1359,40 @@ async def api_video_clear_cache(
     logger.info("Nginx キャッシュ削除 API: video_id=%s, 削除数=%d", video_id, deleted)
     return RedirectResponse(url=f"/videos/{video.id}/edit?cache_cleared={deleted}", status_code=303)
 
+
+
+# ==============================================================
+# サムネイル管理エンドポイント
+# ==============================================================
+
+@app.post("/api/videos/{video_id}/thumbnails/{thumbnail_id}/activate")
+async def api_thumbnail_activate(
+    request: Request,
+    video_id: str,
+    thumbnail_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    指定したサムネイルを active にする（オーナーまたは Admin のみ）。
+
+    同じ video_id の既存 active サムネイルを false にしてから、
+    指定サムネイルを active=true に設定する。
+    """
+    if not _is_valid_id(video_id) or not _is_valid_id(thumbnail_id):
+        return JSONResponse({"error": "invalid id"}, status_code=400)
+    current_user = require_login(request)
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video:
+        return JSONResponse({"error": "video not found"}, status_code=404)
+    if "admin" not in current_user["roles"] and video.owner_user_id != current_user["user_id"]:
+        raise Forbidden()
+    thumbnail = db.query(Thumbnail).filter(
+        Thumbnail.id == thumbnail_id, Thumbnail.video_id == video_id
+    ).first()
+    if not thumbnail:
+        return JSONResponse({"error": "thumbnail not found"}, status_code=404)
+    # 既存の active を全て false にする
+    db.query(Thumbnail).filter(Thumbnail.video_id == video_id).update({"active": False})
+    thumbnail.active = True
+    db.commit()
+    return RedirectResponse(url=f"/videos/{video_id}/edit", status_code=303)

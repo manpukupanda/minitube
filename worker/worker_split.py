@@ -85,8 +85,8 @@ def main() -> None:
             update_job_status(conn, job_id, "processing")
             update_video_status(conn, video_id, "processing")
 
-            # ffmpeg による HLS 分割処理を実行する
-            run_split(video_id)
+            # ffmpeg による HLS 分割処理とサムネイル生成を実行する
+            run_split(video_id, conn=conn)
 
             # 成功時: jobs.status を 'completed' に更新する
             update_job_status(conn, job_id, "completed")

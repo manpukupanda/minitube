@@ -313,6 +313,69 @@
       color: #ff6666;
       border-bottom-color: #442222;
     }
+    .thumbnail-grid {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .thumbnail-item {
+      position: relative;
+      width: 160px;
+    }
+
+    .thumbnail-item img {
+      width: 160px;
+      height: 90px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 2px solid #444;
+      display: block;
+    }
+
+    .thumbnail-item.active img {
+      border-color: #ff4444;
+    }
+
+    .thumbnail-label {
+      font-size: 0.75rem;
+      color: #888;
+      margin-top: 4px;
+      text-align: center;
+    }
+
+    .thumbnail-item.active .thumbnail-label {
+      color: #ff4444;
+      font-weight: bold;
+    }
+
+    .thumbnail-use-btn {
+      display: block;
+      width: 100%;
+      margin-top: 6px;
+      padding: 5px 0;
+      background: #333;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: #aaa;
+      font-size: 0.8rem;
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .thumbnail-use-btn:hover {
+      background: #444;
+      color: #fff;
+    }
+
+    .thumbnail-item.active .thumbnail-use-btn {
+      background: rgba(255, 68, 68, 0.15);
+      border-color: #ff4444;
+      color: #ff6666;
+      cursor: default;
+    }
+
   </style>
 </head>
 <body>
@@ -441,6 +504,34 @@
       <p style="color: #555; font-size: 0.85rem;">視聴権限を持つユーザはいません。</p>
       {% endif %}
     </div>
+
+    <!-- サムネイル管理 -->
+    {% if thumbnails %}
+    <div class="card">
+      <h3>サムネイル</h3>
+      <p style="font-size: 0.85rem; color: #888; margin-bottom: 8px;">
+        「このサムネイルを使う」ボタンで表示するサムネイルを切り替えられます。
+      </p>
+      <div class="thumbnail-grid">
+        {% for thumb in thumbnails %}
+        <div class="thumbnail-item {% if thumb.active %}active{% endif %}">
+          <img src="{{ thumb.url }}" alt="サムネイル" loading="lazy" />
+          <p class="thumbnail-label">
+            {% if thumb.type == "fixed" %}固定秒{% elif thumb.type == "representative" %}代表フレーム{% else %}カスタム{% endif %}
+            {% if thumb.active %}（現在選択中）{% endif %}
+          </p>
+          {% if not thumb.active %}
+          <form action="/api/videos/{{ video_id }}/thumbnails/{{ thumb.id }}/activate" method="post">
+            <button type="submit" class="thumbnail-use-btn">このサムネイルを使う</button>
+          </form>
+          {% else %}
+          <span class="thumbnail-use-btn">選択中 ✓</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
     <!-- 動画ファイル差し替え -->
     <div class="card">

@@ -189,6 +189,7 @@
     <table>
       <thead>
         <tr>
+          <th>サムネイル</th>
           <th>タイトル</th>
           <th>公開設定</th>
           <th>投稿者</th>
@@ -200,6 +201,14 @@
       <tbody>
         {% for video in videos %}
         <tr>
+          <td style="width: 80px;">
+            {% if video.thumbnail_url %}
+            <img src="{{ video.thumbnail_url }}" alt="サムネイル"
+                 style="width: 80px; height: 45px; object-fit: cover; border-radius: 3px; vertical-align: middle;" />
+            {% else %}
+            <span style="color: #555; font-size: 0.8rem;">—</span>
+            {% endif %}
+          </td>
           <td>{{ video.title }}</td>
           <td>
             <span class="visibility-badge visibility-{{ video.visibility }}">

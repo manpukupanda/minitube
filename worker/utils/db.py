@@ -91,3 +91,27 @@ def update_video_status(conn, video_id: str, status: str) -> None:
             (status, now, video_id),
         )
     conn.commit()
+
+
+def create_thumbnail(conn, thumbnail_id: str, video_id: str, url: str, thumb_type: str, active: bool) -> None:
+    """
+    thumbnails テーブルにサムネイルレコードを挿入する。
+
+    Args:
+        conn:         psycopg2 接続オブジェクト
+        thumbnail_id: サムネイルの Base62 ID（11 文字）
+        video_id:     動画の Base62 ID（11 文字）
+        url:          MinIO 経由で参照できる URL（Nginx proxy パス）
+        thumb_type:   "fixed" または "representative"
+        active:       選択状態（True = active）
+    """
+    now = int(time.time())
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO thumbnails (id, video_id, url, type, active, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (thumbnail_id, video_id, url, thumb_type, active, now),
+        )
+    conn.commit()
