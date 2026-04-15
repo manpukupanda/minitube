@@ -275,6 +275,9 @@
     const jobId = "{{ job_id or '' }}";
     let currentJobStatus = "{{ job_status }}";
 
+    // URL クエリパラメータ ?t=<秒> から再生開始位置を取得する（続きから再生）
+    const _startTime = parseInt(new URLSearchParams(window.location.search).get("t") || "0", 10) || 0;
+
     const videoEl = document.getElementById("video-player");
     const statusEl = document.getElementById("status");
     const hlsUrlEl = document.getElementById("hls-url");
@@ -330,6 +333,9 @@
         hls.attachMedia(videoEl);
         hls.on(Hls.Events.MANIFEST_PARSED, function () {
           setStatus("▶ 再生中");
+          if (_startTime > 0) {
+            videoEl.currentTime = _startTime;
+          }
           videoEl.play().catch(function () {
             setStatus("クリックで再生してください");
           });
@@ -358,6 +364,9 @@
         videoEl.src = hlsUrl;
         videoEl.addEventListener("loadedmetadata", function () {
           setStatus("▶ 再生中");
+          if (_startTime > 0) {
+            videoEl.currentTime = _startTime;
+          }
           videoEl.play().catch(function () {
             setStatus("クリックで再生してください");
           });
