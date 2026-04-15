@@ -388,6 +388,7 @@
 
     /** 定期的に再生位置を POST /api/videos/{id}/progress へ送信する（15 秒間隔）。*/
     let _progressIntervalId = null;
+    let _endedListenerAdded = false;
     function startProgressReporting() {
       if (_progressIntervalId !== null) return;
       _progressIntervalId = setInterval(function () {
@@ -402,11 +403,14 @@
           body: JSON.stringify(body),
         }).catch(function () {});
       }, 15000);
-      videoEl.addEventListener("ended", function () {
-        clearInterval(_progressIntervalId);
-        _progressIntervalId = null;
-        notifyWatchComplete();
-      });
+      if (!_endedListenerAdded) {
+        _endedListenerAdded = true;
+        videoEl.addEventListener("ended", function () {
+          clearInterval(_progressIntervalId);
+          _progressIntervalId = null;
+          notifyWatchComplete();
+        });
+      }
     }
 
     /**

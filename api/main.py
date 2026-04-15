@@ -1538,9 +1538,15 @@ async def api_watch_progress(
         body = await request.json()
     except Exception:
         return JSONResponse({"error": "invalid JSON body"}, status_code=400)
-    position = int(body.get("position", 0))
+    try:
+        position = int(body.get("position", 0))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "invalid position value"}, status_code=400)
     raw_duration = body.get("duration")
-    duration = int(raw_duration) if raw_duration is not None else None
+    try:
+        duration = int(raw_duration) if raw_duration is not None else None
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "invalid duration value"}, status_code=400)
     history = db.query(WatchHistory).filter(
         WatchHistory.user_id == user["user_id"],
         WatchHistory.video_id == video_id,
