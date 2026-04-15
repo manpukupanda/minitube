@@ -191,6 +191,15 @@
         {% for video in resume_history %}
         <article class="video-card">
           <a href="/player/{{ video.id }}?t={{ video.last_position }}">
+            {% if video.thumbnail_url %}
+            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
+            {% else %}
+            <div class="video-card-placeholder" aria-hidden="true">▶</div>
+            {% endif %}
+            <div class="video-card-body">
+              <p>{{ video.title }}</p>
+              {% if video.duration and video.duration > 0 %}
+              <div class="progress-bar-track" role="progressbar"
                    aria-valuenow="{{ video.last_position }}"
                    aria-valuemin="0" aria-valuemax="{{ video.duration }}">
                 <div class="progress-bar-fill"
