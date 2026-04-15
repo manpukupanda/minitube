@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<!--
+  home.html - ホーム画面（視聴者向け）
+
+  視聴者の入口となるホーム画面。
+  ログイン済みユーザは視聴可能な動画一覧（public + private）を表示。
+  未ログインユーザは公開動画一覧のみ表示（公開動画なしの場合は /login にリダイレクト）。
+
+  Bootstrap 等の UI フレームワーク導入前の骨格実装。
+  HTML は semantic に構造化されており、後でクラスを付けるだけで整う構造になっている。
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ホーム - minitube</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1a1a;
+      border-bottom: 1px solid #333;
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      color: #ff4444;
+    }
+
+    header nav a {
+      color: #aaa;
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-left: 20px;
+      transition: color 0.2s;
+    }
+
+    header nav a:hover {
+      color: #fff;
+    }
+
+    main {
+      max-width: 1080px;
+      margin: 40px auto;
+      padding: 0 24px;
+    }
+
+    section h2 {
+      font-size: 1.2rem;
+      margin-bottom: 20px;
+      color: #fff;
+    }
+
+    .video-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    article.video-card {
+      width: 240px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    article.video-card a {
+      text-decoration: none;
+      color: inherit;
+      display: block;
+    }
+
+    article.video-card a:hover {
+      opacity: 0.85;
+    }
+
+    .video-card img {
+      width: 100%;
+      height: 135px;
+      object-fit: cover;
+      display: block;
+      background: #333;
+    }
+
+    .video-card-placeholder {
+      width: 100%;
+      height: 135px;
+      background: #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #555;
+      font-size: 1.8rem;
+    }
+
+    .video-card-body {
+      padding: 10px 12px;
+    }
+
+    .video-card-body p {
+      font-size: 0.9rem;
+      color: #ccc;
+      margin-top: 4px;
+      word-break: break-all;
+    }
+
+    .no-videos {
+      color: #555;
+      text-align: center;
+      padding: 48px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>▶ minitube</h1>
+    <nav>
+      <a href="/home">ホーム</a>
+      {% if is_uploader or is_admin %}
+      <a href="/upload">アップロード</a>
+      {% endif %}
+      {% if is_admin %}
+      <a href="/admin/users">ユーザ管理</a>
+      <a href="/admin/categories">カテゴリ管理</a>
+      <a href="/videos">動画管理</a>
+      {% endif %}
+      {% if current_user %}
+      <a href="/profile">プロフィール</a>
+      <a href="/logout">ログアウト</a>
+      {% else %}
+      <a href="/login">ログイン</a>
+      <a href="/register">新規登録</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  <main>
+    <section>
+      <h2>動画一覧</h2>
+
+      {% if videos %}
+      <div class="video-grid">
+        {% for video in videos %}
+        <article class="video-card">
+          <a href="/player/{{ video.id }}">
+            {% if video.thumbnail_url %}
+            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
+            {% else %}
+            <div class="video-card-placeholder" aria-hidden="true">▶</div>
+            {% endif %}
+            <div class="video-card-body">
+              <p>{{ video.title }}</p>
+            </div>
+          </a>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="no-videos">
+        {% if current_user %}
+          まだ視聴できる動画がありません。
+        {% else %}
+          公開動画がありません。<a href="/login" style="color:#ff4444;">ログイン</a>するとさらに多くの動画を視聴できる場合があります。
+        {% endif %}
+      </p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>
