@@ -386,7 +386,7 @@
       {% if is_admin or is_uploader %}
       <a href="/videos">動画一覧</a>
       {% endif %}
-      {% if is_admin or ("uploader" in current_user["roles"]) %}
+      {% if is_admin or is_uploader %}
       <a href="/upload">アップロード</a>
       {% endif %}
       {% if is_admin %}

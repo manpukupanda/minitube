@@ -910,6 +910,7 @@ async def upload_page(
         "upload.html",
         {
             "is_admin": "admin" in user["roles"],
+            "is_uploader": "uploader" in user["roles"],
         },
     )
 

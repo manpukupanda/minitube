@@ -159,7 +159,9 @@
     <h1>▶ minitube</h1>
     <nav>
       <a href="/home">ホーム</a>
+      {% if is_admin or is_uploader %}
       <a href="/videos">動画一覧</a>
+      {% endif %}
       <a href="/upload">アップロード</a>
       {% if is_admin %}
       <a href="/admin/users">ユーザ管理</a>
