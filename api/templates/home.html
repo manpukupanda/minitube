@@ -128,6 +128,9 @@
       border: 1px solid #333;
       border-radius: 8px;
     }
+    .link-accent {
+      color: #ff4444;
+    }
   </style>
 </head>
 <body>
@@ -179,7 +182,7 @@
         {% if current_user %}
           まだ視聴できる動画がありません。
         {% else %}
-          公開動画がありません。<a href="/login" style="color:#ff4444;">ログイン</a>するとさらに多くの動画を視聴できる場合があります。
+          公開動画がありません。<a href="/login" class="link-accent">ログイン</a>するとさらに多くの動画を視聴できる場合があります。
         {% endif %}
       </p>
       {% endif %}
