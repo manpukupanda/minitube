@@ -275,6 +275,9 @@
     const jobId = "{{ job_id or '' }}";
     let currentJobStatus = "{{ job_status }}";
 
+    // URL クエリパラメータ ?t=<秒> から再生開始位置を取得する（続きから再生）
+    const _startTime = parseInt(new URLSearchParams(window.location.search).get("t") || "0", 10) || 0;
+
     const videoEl = document.getElementById("video-player");
     const statusEl = document.getElementById("status");
     const hlsUrlEl = document.getElementById("hls-url");
@@ -330,9 +333,14 @@
         hls.attachMedia(videoEl);
         hls.on(Hls.Events.MANIFEST_PARSED, function () {
           setStatus("▶ 再生中");
+          if (_startTime > 0) {
+            videoEl.currentTime = _startTime;
+          }
           videoEl.play().catch(function () {
             setStatus("クリックで再生してください");
           });
+          notifyWatchStart();
+          startProgressReporting();
         });
         hls.on(Hls.Events.ERROR, function (event, data) {
           if (data.fatal) {
@@ -356,15 +364,61 @@
         videoEl.src = hlsUrl;
         videoEl.addEventListener("loadedmetadata", function () {
           setStatus("▶ 再生中");
+          if (_startTime > 0) {
+            videoEl.currentTime = _startTime;
+          }
           videoEl.play().catch(function () {
             setStatus("クリックで再生してください");
           });
+          notifyWatchStart();
+          startProgressReporting();
         });
         videoEl.addEventListener("error", function () {
           setStatus("動画の読み込みに失敗しました", true);
         });
       } else {
         setStatus("このブラウザは HLS の再生に対応していません", true);
+      }
+    }
+
+    // ==============================================================
+    // 視聴履歴 API（watch / progress / complete）
+    // ==============================================================
+
+    /** 再生開始時に POST /api/videos/{id}/watch を呼び出す。*/
+    function notifyWatchStart() {
+      fetch(`/api/videos/${videoId}/watch`, { method: "POST" }).catch(function () {});
+    }
+
+    /** 視聴完了時に POST /api/videos/{id}/complete を呼び出す。*/
+    function notifyWatchComplete() {
+      fetch(`/api/videos/${videoId}/complete`, { method: "POST" }).catch(function () {});
+    }
+
+    /** 定期的に再生位置を POST /api/videos/{id}/progress へ送信する（15 秒間隔）。*/
+    let _progressIntervalId = null;
+    let _endedListenerAdded = false;
+    function startProgressReporting() {
+      if (_progressIntervalId !== null) return;
+      _progressIntervalId = setInterval(function () {
+        if (videoEl.paused || videoEl.ended) return;
+        const position = Math.floor(videoEl.currentTime);
+        const duration = isFinite(videoEl.duration) ? Math.floor(videoEl.duration) : null;
+        const body = { position };
+        if (duration !== null) body.duration = duration;
+        fetch(`/api/videos/${videoId}/progress`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).catch(function () {});
+      }, 15000);
+      if (!_endedListenerAdded) {
+        _endedListenerAdded = true;
+        videoEl.addEventListener("ended", function () {
+          clearInterval(_progressIntervalId);
+          _progressIntervalId = null;
+          notifyWatchComplete();
+        });
       }
     }
 

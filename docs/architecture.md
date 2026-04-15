@@ -86,6 +86,12 @@
                            │  thumbnails テーブル           │
                            │  id, video_id, url, type,     │
                            │  active, created_at            │
+                           │                               │
+                           │  watch_history テーブル        │
+                           │  user_id, video_id,           │
+                           │  last_watched_at,             │
+                           │  last_position, duration,     │
+                           │  completed                    │
                            └─────────────────────────────┘
 ```
 
@@ -180,6 +186,11 @@ project/
 | POST | `/api/admin/categories` | カテゴリ作成 | 必要（admin） |
 | POST | `/api/admin/categories/{id}/update` | カテゴリ名変更 | 必要（admin） |
 | POST | `/api/admin/categories/{id}/delete` | カテゴリ削除（動画紐付きは不可） | 必要（admin） |
+| POST | `/api/videos/{id}/watch` | 再生開始時に視聴履歴を作成・更新 | 必要 |
+| POST | `/api/videos/{id}/progress` | 再生位置・動画長を更新（JSON: position, duration） | 必要 |
+| POST | `/api/videos/{id}/complete` | 視聴完了を記録 | 必要 |
+| GET | `/api/users/me/history` | 最近見た動画一覧（last_watched_at 降順） | 必要 |
+| GET | `/api/users/me/resume` | 続きから再生できる動画一覧（last_position > 0） | 必要 |
 
 ## データベーススキーマ
 
@@ -223,3 +234,17 @@ project/
 | `fixed` | HLS 変換後に自動生成 | 5 秒地点のフレーム（duration < 5 秒の場合は duration/2） |
 | `representative` | HLS 変換後に自動生成 | ffmpeg の `thumbnail` フィルタが選んだ代表フレーム |
 | `custom` | 将来的なユーザアップロード用 | 現在は未実装 |
+
+### watch_history テーブル（マイグレーション: `7g8h9i0j1k2l`）
+
+| カラム | 型 | NULL 許可 | 説明 |
+|--------|-----|----------|------|
+| `user_id` | VARCHAR | - | FK → users.id（PK の一部） |
+| `video_id` | VARCHAR | - | FK → videos.id（ON DELETE CASCADE、PK の一部） |
+| `last_watched_at` | BIGINT | - | 最後に視聴した日時（UNIX タイムスタンプ） |
+| `last_position` | INTEGER | - | 最後に視聴した再生位置（秒）、デフォルト 0 |
+| `duration` | INTEGER | 許可 | 動画の長さ（秒）、初回 progress で保存 |
+| `completed` | BOOLEAN | - | 視聴完了フラグ、デフォルト false |
+
+主キーは `(user_id, video_id)` のため、1 ユーザにつき 1 動画の履歴が 1 行にまとまる。  
+動画削除時は `ON DELETE CASCADE` で履歴も自動削除される。
