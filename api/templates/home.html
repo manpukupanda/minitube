@@ -6,6 +6,8 @@
   ログイン済みユーザは視聴可能な動画一覧（public + private）を表示。
   未ログインユーザは公開動画一覧のみ表示（公開動画なしの場合は /login にリダイレクト）。
 
+  ログイン済みの場合は「最近見た動画」「続きから再生」セクションも表示する。
+
   Bootstrap 等の UI フレームワーク導入前の骨格実装。
   HTML は semantic に構造化されており、後でクラスを付けるだけで整う構造になっている。
 -->
@@ -58,6 +60,10 @@
       max-width: 1080px;
       margin: 40px auto;
       padding: 0 24px;
+    }
+
+    section {
+      margin-bottom: 48px;
     }
 
     section h2 {
@@ -120,6 +126,27 @@
       word-break: break-all;
     }
 
+    .video-card-body .resume-info {
+      font-size: 0.78rem;
+      color: #888;
+      margin-top: 4px;
+    }
+
+    .progress-bar-track {
+      width: 100%;
+      height: 3px;
+      background: #333;
+      border-radius: 2px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: #ff4444;
+      border-radius: 2px;
+    }
+
     .no-videos {
       color: #555;
       text-align: center;
@@ -157,7 +184,65 @@
   </header>
 
   <main>
-    <section>
+    {% if current_user and resume_history %}
+    <section aria-label="続きから再生">
+      <h2>続きから再生</h2>
+      <div class="video-grid">
+        {% for video in resume_history %}
+        <article class="video-card">
+          <a href="/player/{{ video.id }}">
+            {% if video.thumbnail_url %}
+            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
+            {% else %}
+            <div class="video-card-placeholder" aria-hidden="true">▶</div>
+            {% endif %}
+            <div class="video-card-body">
+              <p>{{ video.title }}</p>
+              {% if video.duration and video.duration > 0 %}
+              <div class="progress-bar-track" role="progressbar"
+                   aria-valuenow="{{ video.last_position }}"
+                   aria-valuemin="0" aria-valuemax="{{ video.duration }}">
+                <div class="progress-bar-fill"
+                     style="width: {{ [(video.last_position / video.duration * 100), 100] | min }}%;"></div>
+              </div>
+              <p class="resume-info">{{ (video.last_position // 60) }}:{{ "%02d" | format(video.last_position % 60) }} / {{ (video.duration // 60) }}:{{ "%02d" | format(video.duration % 60) }}</p>
+              {% else %}
+              <p class="resume-info">{{ (video.last_position // 60) }}:{{ "%02d" | format(video.last_position % 60) }} から再生</p>
+              {% endif %}
+            </div>
+          </a>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if current_user and recent_history %}
+    <section aria-label="最近見た動画">
+      <h2>最近見た動画</h2>
+      <div class="video-grid">
+        {% for video in recent_history %}
+        <article class="video-card">
+          <a href="/player/{{ video.id }}">
+            {% if video.thumbnail_url %}
+            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
+            {% else %}
+            <div class="video-card-placeholder" aria-hidden="true">▶</div>
+            {% endif %}
+            <div class="video-card-body">
+              <p>{{ video.title }}</p>
+              {% if video.completed %}
+              <p class="resume-info">✓ 視聴済み</p>
+              {% endif %}
+            </div>
+          </a>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    <section aria-label="動画一覧">
       <h2>動画一覧</h2>
 
       {% if videos %}
