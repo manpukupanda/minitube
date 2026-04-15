@@ -4,7 +4,7 @@
 
   メールアドレスとパスワードでログインするフォームを表示する。
   フォームの送信先は /api/login (POST)。
-  認証成功後は /videos にリダイレクトされる。
+  認証成功後は /home にリダイレクトされる。
 -->
 <html lang="ja">
 <head>
@@ -119,9 +119,24 @@
     .register-link a:hover {
       text-decoration: underline;
     }
+
+    .home-link {
+      position: fixed;
+      top: 14px;
+      right: 32px;
+      color: #aaa;
+      text-decoration: none;
+      font-size: 0.9rem;
+      z-index: 10;
+    }
+
+    .home-link:hover {
+      color: #fff;
+    }
   </style>
 </head>
 <body>
+  <a href="/home" class="home-link">ホーム</a>
   <div class="login-card">
     <h1>▶ minitube</h1>
     <p class="subtitle">動画配信システム - ログイン</p>

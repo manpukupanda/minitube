@@ -210,7 +210,10 @@
   <header>
     <h1>▶ minitube</h1>
     <nav>
+      <a href="/home">ホーム</a>
+      {% if is_admin %}
       <a href="/videos">動画一覧</a>
+      {% endif %}
       <a href="/upload">アップロード</a>
       <a href="/admin/users">ユーザ管理</a>
       <a href="/admin/categories">カテゴリ管理</a>

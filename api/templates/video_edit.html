@@ -382,8 +382,11 @@
   <header>
     <h1>▶ minitube</h1>
     <nav>
+      <a href="/home">ホーム</a>
+      {% if is_admin or is_uploader %}
       <a href="/videos">動画一覧</a>
-      {% if is_admin or ("uploader" in current_user["roles"]) %}
+      {% endif %}
+      {% if is_admin or is_uploader %}
       <a href="/upload">アップロード</a>
       {% endif %}
       {% if is_admin %}
