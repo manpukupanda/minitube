@@ -540,7 +540,7 @@ async def home_page(request: Request, db: Session = Depends(get_db)):
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
     if request.session.get("user_id"):
-        return RedirectResponse(url="/videos", status_code=303)
+        return RedirectResponse(url="/home", status_code=303)
     return templates.TemplateResponse(request, "login.html", {"error": error == "1"})
 
 
@@ -558,7 +558,7 @@ async def api_login(
     request.session["user_id"] = user.id
     request.session["email"] = user.email
     request.session["roles"] = roles
-    return RedirectResponse(url="/videos", status_code=303)
+    return RedirectResponse(url="/home", status_code=303)
 
 
 @app.get("/logout")
@@ -570,7 +570,7 @@ async def logout(request: Request):
 @app.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request, error: str = ""):
     if request.session.get("user_id"):
-        return RedirectResponse(url="/videos", status_code=303)
+        return RedirectResponse(url="/home", status_code=303)
     return templates.TemplateResponse(request, "register.html", {"error": error})
 
 
@@ -846,6 +846,10 @@ async def remove_video_permission(
 @app.get("/videos", response_class=HTMLResponse)
 async def videos_page(request: Request, db: Session = Depends(get_db)):
     current_user = get_current_user(request)
+    if not current_user or (
+        "admin" not in current_user["roles"] and "uploader" not in current_user["roles"]
+    ):
+        return RedirectResponse(url="/home", status_code=303)
     all_videos = db.query(Video).order_by(Video.created_at.desc()).all()
     visible_videos = []
     for v in all_videos:
