@@ -1004,6 +1004,7 @@ async def player_page(
             "can_manage": can_manage,
             "permissions": permissions,
             "is_admin": current_user and "admin" in current_user["roles"],
+            "is_uploader": current_user and "uploader" in current_user["roles"],
         },
     )
 
@@ -1268,6 +1269,7 @@ async def video_edit_page(
             "thumbnails": [{"id": t.id, "url": t.url, "type": t.type, "active": t.active} for t in thumbnails],
             "current_user": current_user,
             "is_admin": "admin" in current_user["roles"],
+            "is_uploader": "uploader" in current_user["roles"],
         },
     )
 
