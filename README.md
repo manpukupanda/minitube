@@ -43,9 +43,10 @@ docker compose up --build
 
 ## 動作確認
 
-ブラウザで `http://localhost` を開く。
+ブラウザで `http://localhost` を開く（`/home` へリダイレクトされる）。
 
-- 動画一覧: `http://localhost/videos`（未ログインでも公開動画を閲覧可）
+- ホーム画面: `http://localhost/home`（視聴者向け動画一覧。未ログインでも公開動画を閲覧可）
+- 動画管理一覧: `http://localhost/videos`（テーブル形式。管理・編集用）
 - ログイン: `http://localhost/login`（初期管理者: `admin@example.com`）
 - アップロード: `http://localhost/upload`（uploader または admin ロール必須）
 - MinIO コンソール: `http://localhost:9001`
