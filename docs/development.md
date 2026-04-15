@@ -66,7 +66,8 @@ docker compose up --build
 
 ブラウザで `http://localhost` を開く。
 
-- 動画一覧ページ: `http://localhost/videos`（未ログインでも公開動画を閲覧可）
+- ホーム画面（視聴者向け）: `http://localhost/home`（未ログインでも公開動画を閲覧可）
+- 動画管理一覧: `http://localhost/videos`（テーブル形式。管理・編集用）
 - ログインページ: `http://localhost/login`
 - 新規登録ページ: `http://localhost/register`
 - アップロードページ: `http://localhost/upload`（uploader または admin ロール必須）
@@ -88,9 +89,10 @@ http://localhost:9001
 
 **管理者 (admin@example.com) として:**
 1. `http://localhost/login` でメールアドレスとパスワードを入力してログイン
-2. 動画一覧 `/videos` が表示される
-3. `/upload` でアップロードページへ（mp4 を選択し公開設定を選択してアップロード）
-4. `/admin/users` でユーザ一覧と各ユーザのロール管理
+2. 動画一覧 `/videos` が表示される（ログイン後のリダイレクト先）
+3. ホーム画面 `/home` では視聴者向けのタイル形式で動画一覧を閲覧できる
+4. `/upload` でアップロードページへ（mp4 を選択し公開設定を選択してアップロード）
+5. `/admin/users` でユーザ一覧と各ユーザのロール管理
 
 **新規ユーザの登録:**
 1. `/register` でメールアドレス・パスワードを入力して登録（自動的に `viewer` ロール付与）

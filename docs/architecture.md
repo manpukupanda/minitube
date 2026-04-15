@@ -122,9 +122,16 @@ project/
 │   │   ├── script.py.mako  マイグレーションファイルテンプレート
 │   │   └── versions/       マイグレーションファイル群
 │   └── templates/
-│       ├── login.html      ログインページ
-│       ├── upload.html     アップロードページ（ジョブ状態ポーリング付き）
-│       └── player.html     プレイヤーページ（hls.js・ジョブ状態ポーリング付き）
+│       ├── home.html           ホーム画面（視聴者向け動画タイル一覧）
+│       ├── login.html          ログインページ
+│       ├── register.html       新規登録ページ
+│       ├── upload.html         アップロードページ（ジョブ状態ポーリング付き）
+│       ├── player.html         プレイヤーページ（hls.js・ジョブ状態ポーリング付き）
+│       ├── videos.html         動画管理一覧ページ（テーブル形式）
+│       ├── video_edit.html     動画編集ページ
+│       ├── profile.html        プロフィール編集ページ
+│       ├── admin_users.html    Admin 専用ユーザ管理ページ
+│       └── admin_categories.html  Admin 専用カテゴリ管理ページ
 ├── worker/
 │   ├── Dockerfile          Worker コンテナのビルド定義（ffmpeg 含む）
 │   ├── worker_split.py     Redis Queue 監視・HLS 変換オーケストレーション
@@ -142,7 +149,8 @@ project/
 
 | メソッド | パス | 説明 | 認証 |
 |---------|------|------|------|
-| GET | `/` | ルート（/videos へリダイレクト） | - |
+| GET | `/` | ルート（/home へリダイレクト） | - |
+| GET | `/home` | ホーム画面（視聴者向け動画一覧） | 不要（公開動画） |
 | GET | `/login` | ログインページ | 不要 |
 | POST | `/api/login` | ログイン処理 | 不要 |
 | GET | `/logout` | ログアウト | 不要 |
