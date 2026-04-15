@@ -423,8 +423,8 @@ async def root():
 async def home_page(request: Request, db: Session = Depends(get_db)):
     current_user = get_current_user(request)
 
-    # クエリを絞り込む（status が completed のみ）
-    query = db.query(Video).filter(Video.status == "completed")
+    # クエリを絞り込む（status が ready のみ）
+    query = db.query(Video).filter(Video.status == "ready")
     if not current_user:
         # 未ログインユーザには公開動画のみを返す
         query = query.filter(Video.visibility == "public")
