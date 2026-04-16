@@ -338,7 +338,6 @@
   <script>
     (function initFavoriteRemoval() {
       const grid = document.getElementById("favorites-grid");
-      const emptyMessage = document.getElementById("favorites-empty-message");
       const buttons = document.querySelectorAll("[data-favorite-remove]");
       buttons.forEach(function (button) {
         button.addEventListener("click", async function (event) {
@@ -365,7 +364,6 @@
           }
         });
       });
-      if (emptyMessage && grid) emptyMessage.remove();
     })();
   </script>
   {% endif %}
