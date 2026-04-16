@@ -139,7 +139,7 @@ project/
 │       ├── video_edit.html     動画編集ページ
 │       ├── profile.html        プロフィール編集ページ
 │       ├── admin_users.html    Admin 専用ユーザ管理ページ
-│       ├── admin_categories.html  Admin 専用カテゴリ管理ページ
+│       ├── admin_categories.html    Admin 専用カテゴリ管理ページ
 │       └── admin_site_settings.html Admin 専用ホーム画面設定ページ
 ├── worker/
 │   ├── Dockerfile          Worker コンテナのビルド定義（ffmpeg 含む）

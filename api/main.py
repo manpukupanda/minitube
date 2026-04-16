@@ -830,15 +830,14 @@ async def api_admin_site_settings(
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    _ = admin
     try:
         parsed_recommended_ids = json.loads(recommended_video_ids or "[]")
     except json.JSONDecodeError:
         return JSONResponse({"error": "invalid recommended_video_ids JSON"}, status_code=400)
     try:
         normalized_recommended_ids = _normalize_recommended_video_ids(parsed_recommended_ids)
-    except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+    except ValueError:
+        return JSONResponse({"error": "invalid recommended_video_ids"}, status_code=400)
 
     if normalized_recommended_ids:
         existing_ids = {
@@ -998,7 +997,7 @@ def _normalize_recommended_video_ids(raw_ids) -> list[str]:
 
 
 def _site_settings_response(settings: SiteSetting | None) -> dict:
-    """公開用 site_settings レスポンスを生成する。"""
+    """公開用 site_settings レスポンス（top_notice / hero_image_url / recommended_video_ids）を生成する。"""
     if not settings:
         return {
             "top_notice": None,
