@@ -146,7 +146,25 @@
       flex: 0 0 auto;
     }
 
+    .watch-later-remove-btn {
+      border: 1px solid #555;
+      background: #2a2a2a;
+      color: #ffcc66;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      width: 28px;
+      height: 28px;
+      cursor: pointer;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+
     .favorite-remove-btn:hover {
+      background: #343434;
+      color: #ffdd88;
+    }
+
+    .watch-later-remove-btn:hover {
       background: #343434;
       color: #ffdd88;
     }
@@ -270,6 +288,38 @@
     {% endif %}
 
     {% if current_user %}
+    <section aria-label="後で見る">
+      <h2>後で見る（Watch Later）</h2>
+      {% if watch_later_videos %}
+      <div class="video-grid" id="watch-later-grid">
+        {% for video in watch_later_videos %}
+        <article class="video-card" data-watch-later-video-id="{{ video.id }}">
+          <a href="/player/{{ video.id }}">
+            {% if video.thumbnail_url %}
+            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
+            {% else %}
+            <div class="video-card-placeholder" aria-hidden="true">▶</div>
+            {% endif %}
+          </a>
+          <div class="video-card-body">
+            <div class="video-card-body-row">
+              <p>{{ video.title }}</p>
+              <button type="button"
+                      class="watch-later-remove-btn"
+                      data-watch-later-remove="{{ video.id }}"
+                      aria-label="後で見る解除">
+                📌
+              </button>
+            </div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="no-videos" id="watch-later-empty-message">まだ後で見る動画がありません。</p>
+      {% endif %}
+    </section>
+
     <section aria-label="お気に入り">
       <h2>お気に入り</h2>
       {% if favorite_videos %}
@@ -336,6 +386,36 @@
   </main>
   {% if current_user %}
   <script>
+    (function initWatchLaterRemoval() {
+      const grid = document.getElementById("watch-later-grid");
+      const buttons = document.querySelectorAll("[data-watch-later-remove]");
+      buttons.forEach(function (button) {
+        button.addEventListener("click", async function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          const videoId = button.getAttribute("data-watch-later-remove");
+          if (!videoId) return;
+          button.disabled = true;
+          try {
+            const response = await fetch(`/api/videos/${videoId}/watch_later`, { method: "DELETE" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const card = document.querySelector(`[data-watch-later-video-id="${videoId}"]`);
+            if (card) card.remove();
+            if (grid && !grid.querySelector("[data-watch-later-video-id]")) {
+              const message = document.createElement("p");
+              message.className = "no-videos";
+              message.id = "watch-later-empty-message";
+              message.textContent = "まだ後で見る動画がありません。";
+              grid.replaceWith(message);
+            }
+          } catch (err) {
+            button.disabled = false;
+            alert("後で見る解除に失敗しました。時間をおいて再度お試しください。");
+          }
+        });
+      });
+    })();
+
     (function initFavoriteRemoval() {
       const grid = document.getElementById("favorites-grid");
       const buttons = document.querySelectorAll("[data-favorite-remove]");
