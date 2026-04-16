@@ -13,6 +13,7 @@
 - **視聴履歴**: 再生開始・進捗・完了を自動記録。ホーム画面に「最近見た動画」「続きから再生」セクションを表示
 - **お気に入り**: プレイヤー画面でお気に入り追加/解除、ホーム画面でお気に入り一覧表示と解除が可能
 - **後で見る**: プレイヤー画面で後で見る追加/解除、ホーム画面で後で見る一覧表示と解除が可能
+- **通知**: アプリ内通知（新着動画・更新動画・権限付与・管理者メッセージ）。ヘッダーのベルから確認し既読管理可能
 - **キュー**: Redis Queue で API から Worker へ変換ジョブを受け渡す
 - **保存**: Worker が変換後の HLS ファイルおよびサムネイルを **MinIO**（S3 互換オブジェクトストレージ）に永続保存
 - **配信**: Nginx が secure_link_md5 検証後に **MinIO へ直接 proxy_pass**（proxy_cache 付き）。サムネイルも Nginx 経由で配信
@@ -70,6 +71,7 @@ docker compose up --build
 | [docs/watch_history.md](docs/watch_history.md) | 視聴履歴・続きから再生・履歴 API |
 | [docs/favorites.md](docs/favorites.md) | お気に入り機能・お気に入り API |
 | [docs/watch_later.md](docs/watch_later.md) | 後で見る機能・後で見る API |
+| [docs/notifications.md](docs/notifications.md) | 通知機能・通知 API・通知発火条件 |
 | [docs/worker.md](docs/worker.md) | HLS 変換・Worker 処理フロー・Redis Queue |
 | [docs/nginx.md](docs/nginx.md) | Nginx secure_link・proxy_cache・キャッシュ削除 |
 | [docs/storage.md](docs/storage.md) | MinIO オブジェクト構造・HLS ディレクトリ例 |

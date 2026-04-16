@@ -213,6 +213,7 @@
         <a href="/admin/users">ユーザ管理</a>
         <a href="/admin/categories">カテゴリ管理</a>
         {% endif %}
+        <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
         <a href="/profile">プロフィール</a>
         <a href="/logout">ログアウト</a>
       {% else %}
