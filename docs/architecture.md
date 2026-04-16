@@ -191,6 +191,9 @@ project/
 | POST | `/api/videos/{id}/complete` | 視聴完了を記録 | 必要 |
 | GET | `/api/users/me/history` | 最近見た動画一覧（last_watched_at 降順） | 必要 |
 | GET | `/api/users/me/resume` | 続きから再生できる動画一覧（last_position > 0） | 必要 |
+| POST | `/api/videos/{id}/favorite` | お気に入り追加（登録済みでも 200） | 必要 |
+| DELETE | `/api/videos/{id}/favorite` | お気に入り解除（未登録でも 200） | 必要 |
+| GET | `/api/users/me/favorites` | お気に入り一覧（created_at 降順） | 必要 |
 
 ## データベーススキーマ
 
@@ -248,3 +251,14 @@ project/
 
 主キーは `(user_id, video_id)` のため、1 ユーザにつき 1 動画の履歴が 1 行にまとまる。  
 動画削除時は `ON DELETE CASCADE` で履歴も自動削除される。
+
+### favorites テーブル（マイグレーション: `8h9i0j1k2l3m`）
+
+| カラム | 型 | NULL 許可 | 説明 |
+|--------|-----|----------|------|
+| `user_id` | VARCHAR | - | FK → users.id（PK の一部） |
+| `video_id` | VARCHAR | - | FK → videos.id（ON DELETE CASCADE、PK の一部） |
+| `created_at` | BIGINT | - | お気に入り登録日時（UNIX タイムスタンプ） |
+
+主キーは `(user_id, video_id)` のため重複登録は不可。  
+動画削除時は `ON DELETE CASCADE` で favorites も自動削除される。

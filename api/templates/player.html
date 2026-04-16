@@ -74,8 +74,30 @@
     /* 動画タイトル */
     h2 {
       font-size: 1.3rem;
-      margin-bottom: 20px;
       color: #fff;
+    }
+
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .favorite-toggle-btn {
+      border: 1px solid #555;
+      border-radius: 6px;
+      background: #2a2a2a;
+      color: #ddd;
+      padding: 6px 12px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .favorite-toggle-btn.active {
+      color: #ffcc66;
+      border-color: #aa8855;
     }
 
     /* 動画プレイヤー本体 */
@@ -187,7 +209,12 @@
 
   <div class="player-container">
     <!-- 動画タイトル -->
-    <h2>{{ title }}</h2>
+    <div class="title-row">
+      <h2>{{ title }}</h2>
+      {% if current_user %}
+      <button id="favorite-toggle-button" type="button" class="favorite-toggle-btn">☆ お気に入り</button>
+      {% endif %}
+    </div>
 
     <!-- 処理中プレースホルダー（queued / processing 時に表示） -->
     <div id="processing-placeholder" style="display: none;">
@@ -286,6 +313,9 @@
     const hlsUrlEl = document.getElementById("hls-url");
     const placeholderEl = document.getElementById("processing-placeholder");
     const processingLabelEl = document.getElementById("processing-label");
+    const favoriteToggleButton = document.getElementById("favorite-toggle-button");
+    const isLoggedIn = {{ "true" if current_user else "false" }};
+    let isFavorite = false;
 
     /**
      * ステータスメッセージを更新する
@@ -293,6 +323,47 @@
     function setStatus(message, isError = false) {
       statusEl.textContent = message;
       statusEl.className = isError ? "error" : "";
+    }
+
+    function renderFavoriteButton() {
+      if (!favoriteToggleButton) return;
+      favoriteToggleButton.classList.toggle("active", isFavorite);
+      favoriteToggleButton.textContent = isFavorite ? "★ お気に入り中" : "☆ お気に入り";
+    }
+
+    async function loadFavoriteState() {
+      if (!isLoggedIn || !favoriteToggleButton) return;
+      favoriteToggleButton.disabled = true;
+      try {
+        const response = await fetch("/api/users/me/favorites");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const favorites = Array.isArray(data.favorites) ? data.favorites : [];
+        isFavorite = favorites.some(function (v) {
+          return v.video_id === videoId;
+        });
+        renderFavoriteButton();
+      } catch (err) {
+        setStatus("お気に入り状態の取得に失敗しました", true);
+      } finally {
+        favoriteToggleButton.disabled = false;
+      }
+    }
+
+    async function toggleFavorite() {
+      if (!isLoggedIn || !favoriteToggleButton) return;
+      favoriteToggleButton.disabled = true;
+      const method = isFavorite ? "DELETE" : "POST";
+      try {
+        const response = await fetch(`/api/videos/${videoId}/favorite`, { method });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        isFavorite = !isFavorite;
+        renderFavoriteButton();
+      } catch (err) {
+        setStatus("お気に入りの更新に失敗しました", true);
+      } finally {
+        favoriteToggleButton.disabled = false;
+      }
     }
 
     /**
@@ -471,6 +542,11 @@
 
     // 初期状態に応じて処理を分岐する
     (async function init() {
+      if (favoriteToggleButton) {
+        renderFavoriteButton();
+        favoriteToggleButton.addEventListener("click", toggleFavorite);
+        await loadFavoriteState();
+      }
       if (currentJobStatus === "completed") {
         // すでに完了している場合はそのまま再生する
         setStatus("");
