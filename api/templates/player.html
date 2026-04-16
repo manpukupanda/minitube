@@ -95,9 +95,24 @@
       cursor: pointer;
     }
 
+    .watch-later-toggle-btn {
+      border: 1px solid #555;
+      border-radius: 6px;
+      background: #2a2a2a;
+      color: #ddd;
+      padding: 6px 12px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
     .favorite-toggle-btn.active {
       color: #ffcc66;
       border-color: #aa8855;
+    }
+
+    .watch-later-toggle-btn.active {
+      color: #88ccff;
+      border-color: #4477aa;
     }
 
     /* 動画プレイヤー本体 */
@@ -212,7 +227,10 @@
     <div class="title-row">
       <h2>{{ title }}</h2>
       {% if current_user %}
-      <button id="favorite-toggle-button" type="button" class="favorite-toggle-btn">☆ お気に入り</button>
+      <div style="display: flex; gap: 8px;">
+        <button id="watch-later-toggle-button" type="button" class="watch-later-toggle-btn">📍 後で見る</button>
+        <button id="favorite-toggle-button" type="button" class="favorite-toggle-btn">☆ お気に入り</button>
+      </div>
       {% endif %}
     </div>
 
@@ -314,8 +332,10 @@
     const placeholderEl = document.getElementById("processing-placeholder");
     const processingLabelEl = document.getElementById("processing-label");
     const favoriteToggleButton = document.getElementById("favorite-toggle-button");
+    const watchLaterToggleButton = document.getElementById("watch-later-toggle-button");
     const isLoggedIn = {{ "true" if current_user else "false" }};
     let isFavorite = false;
+    let isWatchLater = false;
 
     /**
      * ステータスメッセージを更新する
@@ -363,6 +383,47 @@
         setStatus("お気に入りの更新に失敗しました", true);
       } finally {
         favoriteToggleButton.disabled = false;
+      }
+    }
+
+    function renderWatchLaterButton() {
+      if (!watchLaterToggleButton) return;
+      watchLaterToggleButton.classList.toggle("active", isWatchLater);
+      watchLaterToggleButton.textContent = isWatchLater ? "📌 後で見る中" : "📍 後で見る";
+    }
+
+    async function loadWatchLaterState() {
+      if (!isLoggedIn || !watchLaterToggleButton) return;
+      watchLaterToggleButton.disabled = true;
+      try {
+        const response = await fetch("/api/users/me/watch_later");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const watchLater = Array.isArray(data.watch_later) ? data.watch_later : [];
+        isWatchLater = watchLater.some(function (v) {
+          return v.video_id === videoId;
+        });
+        renderWatchLaterButton();
+      } catch (err) {
+        setStatus("後で見る状態の取得に失敗しました", true);
+      } finally {
+        watchLaterToggleButton.disabled = false;
+      }
+    }
+
+    async function toggleWatchLater() {
+      if (!isLoggedIn || !watchLaterToggleButton) return;
+      watchLaterToggleButton.disabled = true;
+      const method = isWatchLater ? "DELETE" : "POST";
+      try {
+        const response = await fetch(`/api/videos/${videoId}/watch_later`, { method });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        isWatchLater = !isWatchLater;
+        renderWatchLaterButton();
+      } catch (err) {
+        setStatus("後で見るの更新に失敗しました", true);
+      } finally {
+        watchLaterToggleButton.disabled = false;
       }
     }
 
@@ -542,6 +603,11 @@
 
     // 初期状態に応じて処理を分岐する
     (async function init() {
+      if (watchLaterToggleButton) {
+        renderWatchLaterButton();
+        watchLaterToggleButton.addEventListener("click", toggleWatchLater);
+        await loadWatchLaterState();
+      }
       if (favoriteToggleButton) {
         renderFavoriteButton();
         favoriteToggleButton.addEventListener("click", toggleFavorite);

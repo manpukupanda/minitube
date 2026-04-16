@@ -194,6 +194,9 @@ project/
 | POST | `/api/videos/{id}/favorite` | お気に入り追加（登録済みでも 200） | 必要 |
 | DELETE | `/api/videos/{id}/favorite` | お気に入り解除（未登録でも 200） | 必要 |
 | GET | `/api/users/me/favorites` | お気に入り一覧（created_at 降順） | 必要 |
+| POST | `/api/videos/{id}/watch_later` | 後で見る追加（登録済みでも 200） | 必要 |
+| DELETE | `/api/videos/{id}/watch_later` | 後で見る解除（未登録でも 200） | 必要 |
+| GET | `/api/users/me/watch_later` | 後で見る一覧（created_at 降順、auto_removed_at IS NULL） | 必要 |
 
 ## データベーススキーマ
 
@@ -262,3 +265,15 @@ project/
 
 主キーは `(user_id, video_id)` のため重複登録は不可。  
 動画削除時は `ON DELETE CASCADE` で favorites も自動削除される。
+
+### watch_later テーブル（マイグレーション: `9i0j1k2l3m4n`）
+
+| カラム | 型 | NULL 許可 | 説明 |
+|--------|-----|----------|------|
+| `user_id` | VARCHAR | - | FK → users.id（PK の一部） |
+| `video_id` | VARCHAR | - | FK → videos.id（ON DELETE CASCADE、PK の一部） |
+| `created_at` | BIGINT | - | 後で見る登録日時（UNIX タイムスタンプ） |
+| `auto_removed_at` | BIGINT | 許可 | 自動削除日時（将来拡張用、現状未使用） |
+
+主キーは `(user_id, video_id)` のため重複登録は不可。  
+動画削除時は `ON DELETE CASCADE` で watch_later も自動削除される。
