@@ -201,6 +201,22 @@
     .link-accent {
       color: #ff4444;
     }
+    section.notice {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 16px;
+      white-space: pre-wrap;
+      line-height: 1.6;
+    }
+    .hero-image img {
+      width: 100%;
+      max-height: 420px;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 1px solid #333;
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -217,6 +233,7 @@
       {% if is_admin %}
       <a href="/admin/users">ユーザ管理</a>
       <a href="/admin/categories">カテゴリ管理</a>
+      <a href="/admin/site-settings">ホーム画面設定</a>
       {% endif %}
       {% if current_user %}
       <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
@@ -230,6 +247,38 @@
   </header>
 
   <main>
+    {% if hero_image_url %}
+    <section class="hero-image" aria-label="ヒーローイメージ">
+      <img src="{{ hero_image_url }}" alt="メインビジュアル" />
+    </section>
+    {% endif %}
+
+    {% if top_notice %}
+    <section class="notice" aria-label="お知らせ">{{ top_notice }}</section>
+    {% endif %}
+
+    {% if recommended_videos %}
+    <section aria-label="おすすめ動画">
+      <h2>おすすめ動画</h2>
+      <div class="video-grid">
+        {% for video in recommended_videos %}
+        <article class="video-card">
+          <a href="/player/{{ video.id }}">
+            {% if video.thumbnail_url %}
+            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
+            {% else %}
+            <div class="video-card-placeholder" aria-hidden="true">▶</div>
+            {% endif %}
+            <div class="video-card-body">
+              <p>{{ video.title }}</p>
+            </div>
+          </a>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
     {% if current_user and resume_history %}
     <section aria-label="続きから再生">
       <h2>続きから再生</h2>

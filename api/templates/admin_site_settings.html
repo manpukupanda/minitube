@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ホーム画面設定 - minitube</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; }
+    header { background: #1a1a1a; border-bottom: 1px solid #333; padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 1.4rem; color: #ff4444; }
+    header nav a { color: #aaa; text-decoration: none; font-size: 0.9rem; margin-left: 20px; }
+    header nav a:hover { color: #fff; }
+    main { max-width: 960px; margin: 36px auto; padding: 0 24px; }
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    h2 { margin-bottom: 14px; font-size: 1.05rem; }
+    textarea, select, input[type="text"], input[type="file"] { width: 100%; background: #2a2a2a; border: 1px solid #444; color: #e0e0e0; border-radius: 4px; padding: 8px 10px; }
+    textarea { min-height: 120px; resize: vertical; }
+    .hero-preview { margin-top: 10px; max-width: 100%; border-radius: 8px; border: 1px solid #444; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .row select { flex: 1; }
+    .btn { border: 1px solid #555; border-radius: 4px; background: #333; color: #ddd; cursor: pointer; padding: 8px 12px; }
+    .btn:hover { background: #444; }
+    #recommended-list { list-style: none; margin-top: 12px; display: grid; gap: 8px; }
+    .recommended-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #232323; border: 1px solid #3a3a3a; border-radius: 6px; padding: 8px 10px; cursor: grab; }
+    .recommended-item.dragging { opacity: 0.5; }
+    .recommended-actions { display: flex; gap: 6px; }
+    .notice { margin-bottom: 12px; color: #8bc34a; }
+    .error { margin-top: 8px; color: #ff8888; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>▶ minitube</h1>
+    <nav>
+      <a href="/home">ホーム</a>
+      <a href="/videos">動画一覧</a>
+      <a href="/upload">アップロード</a>
+      <a href="/admin/users">ユーザ管理</a>
+      <a href="/admin/categories">カテゴリ管理</a>
+      <a href="/admin/site-settings">ホーム画面設定</a>
+      <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
+      <a href="/profile">プロフィール</a>
+      <a href="/logout">ログアウト</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1 style="margin-bottom: 18px;">ホーム画面設定</h1>
+    <p id="save-notice" class="notice" style="display: none;">保存しました。</p>
+    <form id="site-settings-form">
+      <div class="card">
+        <h2>お知らせ</h2>
+        <textarea name="top_notice" id="top-notice">{{ top_notice }}</textarea>
+      </div>
+
+      <div class="card">
+        <h2>ヒーローイメージ</h2>
+        <input type="hidden" name="hero_image_url" id="hero-image-url" value="{{ hero_image_url }}" />
+        <input type="file" id="hero-image" name="hero_image" accept="image/png,image/jpeg,image/webp" />
+        <label style="display: inline-flex; align-items: center; gap: 8px; margin-top: 10px;">
+          <input type="checkbox" id="clear-hero-image" />
+          画像をクリア
+        </label>
+        {% if hero_image_url %}
+        <img src="{{ hero_image_url }}" alt="hero preview" class="hero-preview" id="hero-preview" />
+        {% else %}
+        <img src="" alt="hero preview" class="hero-preview" id="hero-preview" style="display:none;" />
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h2>おすすめ動画</h2>
+        <div class="row">
+          <select id="video-select">
+            <option value="">動画を選択してください</option>
+            {% for video in video_options %}
+            <option value="{{ video.id }}">{{ video.title }} ({{ video.id }})</option>
+            {% endfor %}
+          </select>
+          <button type="button" class="btn" id="add-video-btn">追加</button>
+        </div>
+        <ul id="recommended-list">
+          {% for video in recommended_videos %}
+          <li class="recommended-item" draggable="true" data-video-id="{{ video.id }}">
+            <span>{{ video.title }} ({{ video.id }})</span>
+            <div class="recommended-actions">
+              <button type="button" class="btn move-up-btn">↑</button>
+              <button type="button" class="btn move-down-btn">↓</button>
+              <button type="button" class="btn remove-btn">削除</button>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        <input type="hidden" name="recommended_video_ids" id="recommended-video-ids" value="[]" />
+        <p class="error" id="form-error" style="display:none;"></p>
+      </div>
+
+      <button type="submit" class="btn">保存</button>
+    </form>
+  </main>
+
+  <script>
+    (function () {
+      const form = document.getElementById("site-settings-form");
+      const addBtn = document.getElementById("add-video-btn");
+      const select = document.getElementById("video-select");
+      const list = document.getElementById("recommended-list");
+      const idsInput = document.getElementById("recommended-video-ids");
+      const errorEl = document.getElementById("form-error");
+      const saveNotice = document.getElementById("save-notice");
+      const heroInput = document.getElementById("hero-image");
+      const heroPreview = document.getElementById("hero-preview");
+      const heroUrlInput = document.getElementById("hero-image-url");
+      const clearHeroCheckbox = document.getElementById("clear-hero-image");
+
+      function updateHiddenIds() {
+        const ids = Array.from(list.querySelectorAll(".recommended-item")).map((item) => item.dataset.videoId);
+        idsInput.value = JSON.stringify(ids);
+      }
+
+      function createItem(id, label) {
+        const li = document.createElement("li");
+        li.className = "recommended-item";
+        li.draggable = true;
+        li.dataset.videoId = id;
+        li.innerHTML = `
+          <span>${label}</span>
+          <div class="recommended-actions">
+            <button type="button" class="btn move-up-btn">↑</button>
+            <button type="button" class="btn move-down-btn">↓</button>
+            <button type="button" class="btn remove-btn">削除</button>
+          </div>
+        `;
+        return li;
+      }
+
+      function bindItemButtons(item) {
+        item.querySelector(".remove-btn").addEventListener("click", function () {
+          item.remove();
+          updateHiddenIds();
+        });
+        item.querySelector(".move-up-btn").addEventListener("click", function () {
+          const prev = item.previousElementSibling;
+          if (prev) list.insertBefore(item, prev);
+          updateHiddenIds();
+        });
+        item.querySelector(".move-down-btn").addEventListener("click", function () {
+          const next = item.nextElementSibling;
+          if (next) list.insertBefore(next, item);
+          updateHiddenIds();
+        });
+        item.addEventListener("dragstart", function () {
+          item.classList.add("dragging");
+        });
+        item.addEventListener("dragend", function () {
+          item.classList.remove("dragging");
+          updateHiddenIds();
+        });
+      }
+
+      list.querySelectorAll(".recommended-item").forEach(bindItemButtons);
+      updateHiddenIds();
+
+      list.addEventListener("dragover", function (event) {
+        event.preventDefault();
+        const dragging = list.querySelector(".dragging");
+        if (!dragging) return;
+        const siblings = Array.from(list.querySelectorAll(".recommended-item:not(.dragging)"));
+        const nextSibling = siblings.find((sibling) => event.clientY <= sibling.getBoundingClientRect().top + sibling.offsetHeight / 2);
+        if (nextSibling) {
+          list.insertBefore(dragging, nextSibling);
+        } else {
+          list.appendChild(dragging);
+        }
+      });
+
+      addBtn.addEventListener("click", function () {
+        errorEl.style.display = "none";
+        if (!select.value) return;
+        if (list.querySelector(`[data-video-id="${select.value}"]`)) {
+          errorEl.textContent = "すでに追加済みの動画です。";
+          errorEl.style.display = "block";
+          return;
+        }
+        const option = select.options[select.selectedIndex];
+        const item = createItem(select.value, option.textContent);
+        bindItemButtons(item);
+        list.appendChild(item);
+        updateHiddenIds();
+      });
+
+      heroInput.addEventListener("change", function () {
+        const file = heroInput.files && heroInput.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function (event) {
+          heroPreview.src = event.target.result;
+          heroPreview.style.display = "block";
+          clearHeroCheckbox.checked = false;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      clearHeroCheckbox.addEventListener("change", function () {
+        if (clearHeroCheckbox.checked) {
+          heroUrlInput.value = "";
+          heroInput.value = "";
+          heroPreview.style.display = "none";
+        }
+      });
+
+      form.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        errorEl.style.display = "none";
+        saveNotice.style.display = "none";
+        updateHiddenIds();
+        if (!clearHeroCheckbox.checked && !heroInput.files.length && heroPreview.src) {
+          heroUrlInput.value = heroPreview.getAttribute("src") || heroUrlInput.value;
+        }
+        const formData = new FormData(form);
+        try {
+          const response = await fetch("/api/admin/site_settings", {
+            method: "POST",
+            body: formData,
+          });
+          const body = await response.json();
+          if (!response.ok) {
+            throw new Error(body.error || `HTTP ${response.status}`);
+          }
+          const saved = body.site_settings || {};
+          heroUrlInput.value = saved.hero_image_url || "";
+          if (saved.hero_image_url) {
+            heroPreview.src = saved.hero_image_url;
+            heroPreview.style.display = "block";
+          } else {
+            heroPreview.style.display = "none";
+          }
+          clearHeroCheckbox.checked = false;
+          saveNotice.style.display = "block";
+        } catch (error) {
+          errorEl.textContent = `保存に失敗しました: ${error.message}`;
+          errorEl.style.display = "block";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

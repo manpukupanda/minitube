@@ -16,6 +16,7 @@
 │                 → proxy_cache     │
 │  /thumbnails/  → MinIO proxy_pass │
 │  /user-icons/  → MinIO proxy_pass │
+│  /hero-images/ → MinIO proxy_pass │
 └──────┬──────────┬────────────┘
        │          │ proxy_pass (secure_link 検証済 / 直接)
        │ proxy    ▼
@@ -27,7 +28,8 @@
        │  │  hls/{video_id}/segment*.ts   │
        │  │  videos/{video_id}/thumbnails/│
        │  │    {thumbnail_id}.jpg         │
-       │  │  user-icons/{user_id}.{ext}   │
+│  │  user-icons/{user_id}.{ext}     │
+│  │  hero-images/{id}.{ext}         │
        │  └──────────────────────────────┘
        │
        ▼
@@ -137,7 +139,8 @@ project/
 │       ├── video_edit.html     動画編集ページ
 │       ├── profile.html        プロフィール編集ページ
 │       ├── admin_users.html    Admin 専用ユーザ管理ページ
-│       └── admin_categories.html  Admin 専用カテゴリ管理ページ
+│       ├── admin_categories.html  Admin 専用カテゴリ管理ページ
+│       └── admin_site_settings.html Admin 専用ホーム画面設定ページ
 ├── worker/
 │   ├── Dockerfile          Worker コンテナのビルド定義（ffmpeg 含む）
 │   ├── worker_split.py     Redis Queue 監視・HLS 変換オーケストレーション
@@ -188,6 +191,9 @@ project/
 | POST | `/api/admin/categories` | カテゴリ作成 | 必要（admin） |
 | POST | `/api/admin/categories/{id}/update` | カテゴリ名変更 | 必要（admin） |
 | POST | `/api/admin/categories/{id}/delete` | カテゴリ削除（動画紐付きは不可） | 必要（admin） |
+| GET | `/api/site_settings` | 公開用ホーム画面設定取得（top_notice / hero_image_url / recommended_video_ids） | 不要 |
+| GET | `/admin/site-settings` | ホーム画面設定ページ | 必要（admin） |
+| POST | `/api/admin/site_settings` | ホーム画面設定更新（お知らせ / ヒーロー画像 / おすすめ動画） | 必要（admin） |
 | POST | `/api/videos/{id}/watch` | 再生開始時に視聴履歴を作成・更新 | 必要 |
 | POST | `/api/videos/{id}/progress` | 再生位置・動画長を更新（JSON: position, duration） | 必要 |
 | POST | `/api/videos/{id}/complete` | 視聴完了を記録 | 必要 |
@@ -298,3 +304,12 @@ project/
 
 `read_at IS NULL` を未読として扱う。  
 動画削除時は `video_id` が `NULL` になり、通知履歴自体は保持される。
+
+### site_settings テーブル（マイグレーション: `b1c2d3e4f5g6`）
+
+| カラム | 型 | NULL 許可 | 説明 |
+|--------|-----|----------|------|
+| `id` | INTEGER | - | 設定レコード ID（単一レコード運用） |
+| `top_notice` | TEXT | 許可 | ホーム上部のお知らせテキスト（複数行） |
+| `hero_image_url` | TEXT | 許可 | Nginx 経由で配信するヒーロー画像 URL（`/hero-images/...`） |
+| `recommended_video_ids` | JSON | - | おすすめ動画 ID 配列（保存順を表示順として使用） |
