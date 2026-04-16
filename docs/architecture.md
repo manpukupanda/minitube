@@ -177,9 +177,11 @@ project/
 | GET | `/api/videos/{id}/playlist` | MinIO から playlist.m3u8 を取得し署名付きセグメント URL を埋め込んで返す | 必要 |
 | GET | `/videos/{id}/*.ts` | Nginx が secure_link 検証後 MinIO から TS セグメントを返す（FastAPI 経由なし） | 不要（署名） |
 | GET | `/profile` | プロフィールページ | 必要 |
+| GET | `/notifications` | 通知一覧ページ | 必要 |
 | GET | `/admin/users` | Admin 専用ユーザ管理ページ | 必要（admin） |
 | POST | `/api/admin/users/{id}/roles` | ロール付与 | 必要（admin） |
 | POST | `/api/admin/users/{id}/roles/{role}/delete` | ロール削除 | 必要（admin） |
+| POST | `/api/admin/notifications` | 管理者通知を作成（全ユーザ or 特定ロール） | 必要（admin） |
 | POST | `/api/admin/videos/{id}/permissions` | 動画視聴権限付与 | 必要（admin/オーナー） |
 | POST | `/api/admin/videos/{id}/permissions/{uid}/delete` | 動画視聴権限削除 | 必要（admin/オーナー） |
 | GET | `/admin/categories` | カテゴリ管理ページ | 必要（admin） |
@@ -197,6 +199,9 @@ project/
 | POST | `/api/videos/{id}/watch_later` | 後で見る追加（登録済みでも 200） | 必要 |
 | DELETE | `/api/videos/{id}/watch_later` | 後で見る解除（未登録でも 200） | 必要 |
 | GET | `/api/users/me/watch_later` | 後で見る一覧（created_at 降順、auto_removed_at IS NULL） | 必要 |
+| GET | `/api/users/me/notifications` | 通知一覧取得（`unread_only=true` で未読のみ） | 必要 |
+| POST | `/api/notifications/{id}/read` | 単一通知を既読化（冪等） | 必要 |
+| POST | `/api/notifications/read_all` | 自分の通知をすべて既読化 | 必要 |
 
 ## データベーススキーマ
 
@@ -277,3 +282,19 @@ project/
 
 主キーは `(user_id, video_id)` のため重複登録は不可。  
 動画削除時は `ON DELETE CASCADE` で watch_later も自動削除される。
+
+### notifications テーブル（マイグレーション: `a0b1c2d3e4f5`）
+
+| カラム | 型 | NULL 許可 | 説明 |
+|--------|-----|----------|------|
+| `id` | CHAR(11) | - | 通知 ID（PK） |
+| `user_id` | VARCHAR | - | 通知対象ユーザ（FK → users.id） |
+| `type` | VARCHAR | - | 通知種別（`new_video` / `video_updated` / `permission_granted` / `admin_message`） |
+| `title` | VARCHAR | - | 通知タイトル |
+| `message` | TEXT | - | 通知本文 |
+| `video_id` | VARCHAR | 許可 | 関連動画（FK → videos.id, ON DELETE SET NULL） |
+| `created_at` | BIGINT | - | 作成日時（UNIX タイムスタンプ） |
+| `read_at` | BIGINT | 許可 | 既読日時（未読時は NULL） |
+
+`read_at IS NULL` を未読として扱う。  
+動画削除時は `video_id` が `NULL` になり、通知履歴自体は保持される。
