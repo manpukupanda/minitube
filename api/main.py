@@ -1154,6 +1154,7 @@ async def videos_page(request: Request, db: Session = Depends(get_db)):
 async def upload_page(
     request: Request,
     user: dict = Depends(require_login),
+    db: Session = Depends(get_db),
 ):
     # Uploader または Admin のみアップロード可能
     if "uploader" not in user["roles"] and "admin" not in user["roles"]:
