@@ -162,3 +162,11 @@ docker compose exec nginx cat /etc/nginx/nginx.conf
 # Nginx のアクセスログでキャッシュ状態を確認
 docker compose logs nginx --tail=50
 ```
+
+## 画像配信（サムネイル / アイコン / ヒーロー画像）
+
+Nginx は以下の画像 URL を MinIO へ proxy_pass して配信する（ブラウザは MinIO を直接参照しない）。
+
+- `/thumbnails/{video_id}/{thumbnail_id}.jpg` → `/${MINIO_BUCKET}/videos/{video_id}/thumbnails/{thumbnail_id}.jpg`
+- `/user-icons/{user_id}.{ext}` → `/${MINIO_BUCKET}/user-icons/{user_id}.{ext}`
+- `/hero-images/{id}.{ext}` → `/${MINIO_BUCKET}/hero-images/{id}.{ext}`
