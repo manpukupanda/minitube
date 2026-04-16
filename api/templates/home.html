@@ -126,6 +126,31 @@
       word-break: break-all;
     }
 
+    .video-card-body-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .favorite-remove-btn {
+      border: 1px solid #555;
+      background: #2a2a2a;
+      color: #ffcc66;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      width: 28px;
+      height: 28px;
+      cursor: pointer;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+
+    .favorite-remove-btn:hover {
+      background: #343434;
+      color: #ffdd88;
+    }
+
     .video-card-body .resume-info {
       font-size: 0.78rem;
       color: #888;
@@ -244,6 +269,40 @@
     </section>
     {% endif %}
 
+    {% if current_user %}
+    <section aria-label="お気に入り">
+      <h2>お気に入り</h2>
+      {% if favorite_videos %}
+      <div class="video-grid" id="favorites-grid">
+        {% for video in favorite_videos %}
+        <article class="video-card" data-favorite-video-id="{{ video.id }}">
+          <a href="/player/{{ video.id }}">
+            {% if video.thumbnail_url %}
+            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
+            {% else %}
+            <div class="video-card-placeholder" aria-hidden="true">▶</div>
+            {% endif %}
+          </a>
+          <div class="video-card-body">
+            <div class="video-card-body-row">
+              <p>{{ video.title }}</p>
+              <button type="button"
+                      class="favorite-remove-btn"
+                      data-favorite-remove="{{ video.id }}"
+                      aria-label="お気に入り解除">
+                ★
+              </button>
+            </div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="no-videos" id="favorites-empty-message">まだお気に入りがありません。</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
     <section aria-label="動画一覧">
       <h2>動画一覧</h2>
 
@@ -275,5 +334,38 @@
       {% endif %}
     </section>
   </main>
+  {% if current_user %}
+  <script>
+    (function initFavoriteRemoval() {
+      const grid = document.getElementById("favorites-grid");
+      const buttons = document.querySelectorAll("[data-favorite-remove]");
+      buttons.forEach(function (button) {
+        button.addEventListener("click", async function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          const videoId = button.getAttribute("data-favorite-remove");
+          if (!videoId) return;
+          button.disabled = true;
+          try {
+            const response = await fetch(`/api/videos/${videoId}/favorite`, { method: "DELETE" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const card = document.querySelector(`[data-favorite-video-id="${videoId}"]`);
+            if (card) card.remove();
+            if (grid && !grid.querySelector("[data-favorite-video-id]")) {
+              const message = document.createElement("p");
+              message.className = "no-videos";
+              message.id = "favorites-empty-message";
+              message.textContent = "まだお気に入りがありません。";
+              grid.replaceWith(message);
+            }
+          } catch (err) {
+            button.disabled = false;
+            alert("お気に入り解除に失敗しました。時間をおいて再度お試しください。");
+          }
+        });
+      });
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>
