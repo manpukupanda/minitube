@@ -542,7 +542,7 @@ def can_view_video(video, user: dict | None, db: Session) -> bool:
 
 
 def _search_videos(db: Session, query_text: str, current_user: dict | None) -> list[Video]:
-    keyword = (query_text or "").strip()
+    keyword = query_text
     if not keyword:
         return []
     like_pattern = f"%{keyword}%"
@@ -567,7 +567,7 @@ def _search_videos(db: Session, query_text: str, current_user: dict | None) -> l
     return [video for video in matched_videos if can_view_video(video, current_user, db)]
 
 
-def _search_results_to_payload(videos: list[Video], db: Session) -> list[dict]:
+def _format_search_videos(videos: list[Video], db: Session) -> list[dict]:
     video_ids = [video.id for video in videos]
     thumb_map: dict[str, str] = {}
     if video_ids:
@@ -903,7 +903,7 @@ async def search_page(
 ):
     query_text = (q or "").strip()
     matched_videos = _search_videos(db=db, query_text=query_text, current_user=user)
-    videos_payload = _search_results_to_payload(matched_videos, db)
+    videos_payload = _format_search_videos(matched_videos, db)
     return templates.TemplateResponse(
         request,
         "search.html",
@@ -931,7 +931,7 @@ async def search_api(
     matched_videos = _search_videos(db=db, query_text=query_text, current_user=user)
     return JSONResponse({
         "query": query_text,
-        "videos": _search_results_to_payload(matched_videos, db),
+        "videos": _format_search_videos(matched_videos, db),
     })
 
 
