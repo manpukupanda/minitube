@@ -542,10 +542,9 @@ def can_view_video(video, user: dict | None, db: Session) -> bool:
 
 
 def _search_videos(db: Session, query_text: str, current_user: dict | None) -> list[Video]:
-    keyword = query_text
-    if not keyword:
+    if not query_text:
         return []
-    like_pattern = f"%{keyword}%"
+    like_pattern = f"%{query_text}%"
     matched_videos = (
         db.query(Video)
         .outerjoin(VideoTag, VideoTag.video_id == Video.id)
