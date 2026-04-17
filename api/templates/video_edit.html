@@ -375,6 +375,31 @@
       color: #ff6666;
       cursor: default;
     }
+    .tag-selector {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .tag-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.85rem;
+      color: #ddd;
+      background: #222;
+      border: 1px solid #333;
+      border-radius: 999px;
+      padding: 5px 10px;
+    }
+    .tag-option input {
+      accent-color: #ff4444;
+    }
+    .tag-help {
+      margin-top: 6px;
+      color: #888;
+      font-size: 0.8rem;
+    }
 
   </style>
 </head>
@@ -392,6 +417,7 @@
       {% if is_admin %}
       <a href="/admin/users">ユーザ管理</a>
       <a href="/admin/categories">カテゴリ管理</a>
+      <a href="/admin/tags">タグ管理</a>
       <a href="/admin/site-settings">ホーム画面設定</a>
       {% endif %}
       <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
@@ -452,6 +478,26 @@
           </option>
           {% endfor %}
         </select>
+
+        <label>タグ</label>
+        {% if tags %}
+        <div class="tag-selector" aria-label="タグ選択">
+          {% for tag in tags %}
+          <label class="tag-option">
+            <input
+              type="checkbox"
+              name="tag_ids"
+              value="{{ tag.id }}"
+              {% if tag.id in selected_tag_ids %}checked{% endif %}
+            />
+            {{ tag.name }}
+          </label>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="tag-help">タグが未登録です。管理者画面でタグを追加してください。</p>
+        {% endif %}
+        <p class="tag-help">タグの追加・編集は <a href="/admin/tags" style="color:#ff6666;">タグ管理</a> から行えます。</p>
 
         <label style="margin-top: 16px;">公開設定</label>
         <div class="radio-group">

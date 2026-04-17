@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>#{{ tag.name }} - minitube</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; }
+    header { background: #1a1a1a; border-bottom: 1px solid #333; padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 1.4rem; color: #ff4444; }
+    header nav a { color: #aaa; text-decoration: none; font-size: 0.9rem; margin-left: 20px; transition: color 0.2s; }
+    header nav a:hover { color: #fff; }
+    main { max-width: 1080px; margin: 40px auto; padding: 0 24px; }
+    h2 { font-size: 1.4rem; margin-bottom: 6px; color: #fff; }
+    .slug { color: #888; margin-bottom: 20px; font-size: 0.9rem; }
+    .video-grid { display: flex; flex-wrap: wrap; gap: 20px; }
+    article.video-card { width: 240px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
+    article.video-card a { text-decoration: none; color: inherit; display: block; }
+    article.video-card a:hover { opacity: 0.85; }
+    .video-card img { width: 100%; height: 135px; object-fit: cover; display: block; background: #333; }
+    .video-card-placeholder { width: 100%; height: 135px; background: #2a2a2a; display: flex; align-items: center; justify-content: center; color: #555; font-size: 1.8rem; }
+    .video-card-body { padding: 10px 12px; }
+    .no-videos { color: #777; padding: 24px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>▶ minitube</h1>
+    <nav>
+      <a href="/home">ホーム</a>
+      {% if is_admin or is_uploader %}
+      <a href="/videos">動画一覧</a>
+      {% endif %}
+      {% if is_uploader or is_admin %}
+      <a href="/upload">アップロード</a>
+      {% endif %}
+      {% if is_admin %}
+      <a href="/admin/users">ユーザ管理</a>
+      <a href="/admin/categories">カテゴリ管理</a>
+      <a href="/admin/tags">タグ管理</a>
+      <a href="/admin/site-settings">ホーム画面設定</a>
+      {% endif %}
+      {% if current_user %}
+      <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
+      <a href="/profile">プロフィール</a>
+      <a href="/logout">ログアウト</a>
+      {% else %}
+      <a href="/login">ログイン</a>
+      <a href="/register">新規登録</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  <main>
+    <h2>#{{ tag.name }}</h2>
+    <p class="slug">/tags/{{ tag.slug }}</p>
+
+    {% if videos %}
+    <div class="video-grid">
+      {% for video in videos %}
+      <article class="video-card">
+        <a href="/player/{{ video.id }}">
+          {% if video.thumbnail_url %}
+          <img src="{{ video.thumbnail_url }}" alt="{{ video.title }} のサムネイル" loading="lazy" />
+          {% else %}
+          <div class="video-card-placeholder">▶</div>
+          {% endif %}
+          <div class="video-card-body">
+            <h3>{{ video.title }}</h3>
+          </div>
+        </a>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="no-videos">このタグの動画はありません</p>
+    {% endif %}
+  </main>
+</body>
+</html>

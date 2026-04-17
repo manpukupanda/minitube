@@ -114,6 +114,27 @@
       color: #88ccff;
       border-color: #4477aa;
     }
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: -8px 0 16px;
+    }
+    .tag-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #555;
+      background: #2a2a2a;
+      color: #ddd;
+      text-decoration: none;
+      font-size: 0.8rem;
+    }
+    .tag-pill:hover {
+      border-color: #ff6666;
+      color: #fff;
+    }
 
     /* 動画プレイヤー本体 */
     video {
@@ -212,6 +233,7 @@
         {% if is_admin %}
         <a href="/admin/users">ユーザ管理</a>
         <a href="/admin/categories">カテゴリ管理</a>
+        <a href="/admin/tags">タグ管理</a>
         <a href="/admin/site-settings">ホーム画面設定</a>
         {% endif %}
         <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
@@ -235,6 +257,13 @@
       </div>
       {% endif %}
     </div>
+    {% if tags %}
+    <div class="tag-list" aria-label="動画タグ">
+      {% for tag in tags %}
+      <a class="tag-pill" href="/tags/{{ tag.slug }}">{{ tag.name }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
 
     <!-- 処理中プレースホルダー（queued / processing 時に表示） -->
     <div id="processing-placeholder" style="display: none;">
