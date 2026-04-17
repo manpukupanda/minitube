@@ -15,6 +15,7 @@
 - **後で見る**: プレイヤー画面で後で見る追加/解除、ホーム画面で後で見る一覧表示と解除が可能
 - **通知**: アプリ内通知（新着動画・更新動画・権限付与・管理者メッセージ）。ヘッダーのベルから確認し既読管理可能
 - **ホーム画面運用設定**: admin が「お知らせ」「おすすめ動画」「ヒーローイメージ」を管理画面から更新可能
+- **検索**: ホーム画面の検索バーから、タイトル・説明・タグ・カテゴリを横断検索
 - **キュー**: Redis Queue で API から Worker へ変換ジョブを受け渡す
 - **保存**: Worker が変換後の HLS ファイルおよびサムネイルを **MinIO**（S3 互換オブジェクトストレージ）に永続保存
 - **配信**: Nginx が secure_link_md5 検証後に **MinIO へ直接 proxy_pass**（proxy_cache 付き）。サムネイルも Nginx 経由で配信
@@ -51,6 +52,7 @@ docker compose up --build
 ブラウザで `http://localhost` を開く（`/home` へリダイレクトされる）。
 
 - ホーム画面: `http://localhost/home`（視聴者向け動画一覧。未ログインでも公開動画を閲覧可）
+- 検索結果: `http://localhost/search?q=キーワード`（ログイン必須）
 - 動画管理一覧: `http://localhost/videos`（テーブル形式。管理・編集用）
 - ログイン: `http://localhost/login`（初期管理者: `admin@example.com`）
 - アップロード: `http://localhost/upload`（uploader または admin ロール必須）
