@@ -140,6 +140,8 @@ project/
 │       ├── profile.html        プロフィール編集ページ
 │       ├── admin_users.html    Admin 専用ユーザ管理ページ
 │       ├── admin_categories.html    Admin 専用カテゴリ管理ページ
+│       ├── admin_tags.html      Admin 専用タグ管理ページ
+│       ├── tags.html            タグ別動画一覧ページ
 │       └── admin_site_settings.html Admin 専用ホーム画面設定ページ
 ├── worker/
 │   ├── Dockerfile          Worker コンテナのビルド定義（ffmpeg 含む）
@@ -169,7 +171,7 @@ project/
 | GET | `/upload` | アップロードページ | 必要（uploader/admin） |
 | POST | `/api/upload` | 動画アップロード → 編集画面へリダイレクト | 必要（uploader/admin） |
 | GET | `/videos/{id}/edit` | 動画編集ページ | 必要（オーナー/admin） |
-| POST | `/api/videos/{id}/update` | 動画メタ情報更新（title/description/category/visibility） | 必要（オーナー/admin） |
+| POST | `/api/videos/{id}/update` | 動画メタ情報更新（title/description/category/tags/visibility） | 必要（オーナー/admin） |
 | POST | `/api/videos/{id}/delete` | 動画削除（HLS・DB レコード削除） | 必要（オーナー/admin） |
 | POST | `/api/videos/{id}/replace` | 動画ファイル差し替え（HLS 再生成） | 必要（オーナー/admin） |
 | POST | `/api/videos/{id}/clear_cache` | Nginx HLS キャッシュ削除 | 必要（オーナー/admin） |
@@ -191,6 +193,14 @@ project/
 | POST | `/api/admin/categories` | カテゴリ作成 | 必要（admin） |
 | POST | `/api/admin/categories/{id}/update` | カテゴリ名変更 | 必要（admin） |
 | POST | `/api/admin/categories/{id}/delete` | カテゴリ削除（動画紐付きは不可） | 必要（admin） |
+| GET | `/admin/tags` | タグ管理ページ | 必要（admin） |
+| GET | `/tags/{slug}` | タグ別動画一覧ページ | 不要（公開動画） |
+| GET | `/api/tags` | タグ一覧取得 | 不要 |
+| GET | `/api/tags/{slug}` | タグ情報 + 動画一覧取得 | 不要 |
+| POST | `/api/admin/tags` | タグ作成 | 必要（admin） |
+| PUT | `/api/admin/tags/{id}` | タグ名変更（slug 自動更新） | 必要（admin） |
+| DELETE | `/api/admin/tags/{id}` | タグ削除（動画紐付きは 400） | 必要（admin） |
+| PUT | `/api/admin/videos/{id}/tags` | 動画へのタグ付与更新（`{ tag_ids: [] }`） | 必要（admin） |
 | GET | `/api/site_settings` | 公開用ホーム画面設定取得（top_notice / hero_image_url / recommended_video_ids） | 不要 |
 | GET | `/admin/site-settings` | ホーム画面設定ページ | 必要（admin） |
 | POST | `/api/admin/site_settings` | ホーム画面設定更新（お知らせ / ヒーロー画像 / おすすめ動画） | 必要（admin） |
@@ -232,6 +242,25 @@ project/
 | `id` | CHAR(11) | カテゴリの一意識別子（Base62 11文字） |
 | `name` | VARCHAR | カテゴリ名（ユニーク） |
 | `created_at` | BIGINT | 作成日時（UNIX タイムスタンプ） |
+
+### tags テーブル（マイグレーション: `c2d3e4f5g6h7`）
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| `id` | CHAR(11) | タグの一意識別子（Base62 11文字） |
+| `name` | VARCHAR | タグ名（ユニーク） |
+| `slug` | VARCHAR | URL 用スラッグ（ユニーク） |
+| `created_at` | BIGINT | 作成日時（UNIX タイムスタンプ） |
+
+### video_tags テーブル（マイグレーション: `c2d3e4f5g6h7`）
+
+| カラム | 型 | 説明 |
+|--------|-----|------|
+| `video_id` | CHAR(11) | FK → videos.id（ON DELETE CASCADE、PK の一部） |
+| `tag_id` | CHAR(11) | FK → tags.id（ON DELETE RESTRICT、PK の一部） |
+
+主キーは `(video_id, tag_id)`。  
+動画には複数タグを付与でき、タグは複数動画に紐づく（多対多）。
 
 ### thumbnails テーブル（マイグレーション: `6f7g8h9i0j1k`）
 

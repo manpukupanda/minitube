@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>タグ管理 - minitube</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; }
+    header { background: #1a1a1a; border-bottom: 1px solid #333; padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { font-size: 1.4rem; color: #ff4444; }
+    header nav a { color: #aaa; text-decoration: none; font-size: 0.9rem; margin-left: 20px; transition: color 0.2s; }
+    header nav a:hover { color: #fff; }
+    main { max-width: 860px; margin: 40px auto; padding: 0 24px; }
+    h2 { font-size: 1.2rem; margin-bottom: 20px; color: #fff; }
+    .card { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 28px; margin-bottom: 32px; }
+    .card h3 { font-size: 1rem; margin-bottom: 16px; color: #ccc; }
+    .add-form, .edit-form { display: flex; gap: 10px; align-items: center; }
+    input[type="text"] { padding: 8px 12px; background: #2a2a2a; border: 1px solid #444; border-radius: 4px; color: #e0e0e0; font-size: 0.9rem; outline: none; }
+    .add-form input[type="text"] { flex: 1; }
+    .edit-form input[type="text"] { width: 220px; }
+    input[type="text"]:focus { border-color: #ff4444; }
+    .btn { padding: 8px 18px; border: none; border-radius: 4px; font-size: 0.85rem; cursor: pointer; transition: background 0.2s; }
+    .btn-primary { background: #ff4444; color: #fff; }
+    .btn-primary:hover { background: #cc2222; }
+    .btn-secondary { background: #333; color: #aaa; border: 1px solid #555; }
+    .btn-secondary:hover { background: #444; color: #fff; }
+    .btn-danger { background: rgba(255, 68, 68, 0.15); color: #ff6666; border: 1px solid #ff4444; }
+    .btn-danger:hover { background: rgba(255, 68, 68, 0.3); }
+    .btn-danger:disabled { background: #2a1a1a; color: #664444; border-color: #442222; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #2a2a2a; font-size: 0.9rem; vertical-align: middle; }
+    th { color: #888; font-weight: normal; }
+    tr:last-child td { border-bottom: none; }
+    .no-tags { color: #555; text-align: center; padding: 32px; }
+    .error-msg { background: #2a1a1a; border: 1px solid #ff4444; border-radius: 4px; padding: 10px 14px; color: #ff6666; font-size: 0.85rem; margin-bottom: 20px; }
+    .meta { color: #888; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>▶ minitube</h1>
+    <nav>
+      <a href="/home">ホーム</a>
+      <a href="/videos">動画一覧</a>
+      <a href="/upload">アップロード</a>
+      <a href="/admin/users">ユーザ管理</a>
+      <a href="/admin/categories">カテゴリ管理</a>
+      <a href="/admin/tags">タグ管理</a>
+      <a href="/admin/site-settings">ホーム画面設定</a>
+      <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
+      <a href="/profile">プロフィール</a>
+      <a href="/logout">ログアウト</a>
+    </nav>
+  </header>
+
+  <main>
+    <h2>タグ管理</h2>
+
+    {% set error = request.query_params.get("error", "") %}
+    {% if error == "empty_name" %}
+    <div class="error-msg">タグ名を入力してください。</div>
+    {% elif error == "duplicate_name" %}
+    <div class="error-msg">同じ名前のタグがすでに存在します。</div>
+    {% elif error == "has_videos" %}
+    <div class="error-msg">動画が紐づいているため、このタグは削除できません。</div>
+    {% endif %}
+
+    <div class="card">
+      <h3>タグを追加</h3>
+      <form action="/api/admin/tags" method="post" class="add-form">
+        <input type="text" name="name" placeholder="タグ名" required maxlength="100" />
+        <button type="submit" class="btn btn-primary">追加</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3>タグ一覧</h3>
+      {% if tags %}
+      <table>
+        <thead>
+          <tr>
+            <th>タグ名</th>
+            <th>slug</th>
+            <th>動画数</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for tag in tags %}
+          <tr>
+            <td>
+              <form action="/api/admin/tags/{{ tag.id }}/update" method="post" class="edit-form">
+                <input type="text" name="name" value="{{ tag.name }}" required maxlength="100" />
+                <button type="submit" class="btn btn-secondary">名前変更</button>
+              </form>
+            </td>
+            <td><span class="meta">{{ tag.slug }}</span></td>
+            <td><span class="meta">{{ tag.video_count }} 本</span></td>
+            <td>
+              <form action="/api/admin/tags/{{ tag.id }}/delete" method="post" style="display: inline;">
+                <button
+                  type="submit"
+                  class="btn btn-danger"
+                  {% if tag.video_count > 0 %}disabled title="動画が紐づいているため削除できません"{% endif %}
+                  {% if tag.video_count == 0 %}onclick="return confirm('タグ「{{ tag.name }}」を削除しますか？')"{% endif %}
+                >削除</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="no-tags">タグがまだ登録されていません。</p>
+      {% endif %}
+    </div>
+  </main>
+</body>
+</html>
