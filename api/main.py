@@ -106,7 +106,7 @@ from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from passlib.context import CryptContext
-from sqlalchemy import JSON, BigInteger, Boolean, Column, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import JSON, BigInteger, Boolean, Column, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, or_
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -541,6 +541,53 @@ def can_view_video(video, user: dict | None, db: Session) -> bool:
     return perm is not None
 
 
+def _search_videos(db: Session, query_text: str, current_user: dict | None) -> list[Video]:
+    if not query_text:
+        return []
+    like_pattern = f"%{query_text}%"
+    matched_videos = (
+        db.query(Video)
+        .outerjoin(VideoTag, VideoTag.video_id == Video.id)
+        .outerjoin(Tag, Tag.id == VideoTag.tag_id)
+        .outerjoin(Category, Category.id == Video.category_id)
+        .filter(Video.status == "ready")
+        .filter(
+            or_(
+                Video.title.ilike(like_pattern),
+                Video.description.ilike(like_pattern),
+                Tag.name.ilike(like_pattern),
+                Category.name.ilike(like_pattern),
+            )
+        )
+        .distinct()
+        .order_by(Video.created_at.desc())
+        .all()
+    )
+    return [video for video in matched_videos if can_view_video(video, current_user, db)]
+
+
+def _format_search_videos(videos: list[Video], db: Session) -> list[dict]:
+    video_ids = [video.id for video in videos]
+    thumb_map: dict[str, str] = {}
+    if video_ids:
+        thumbs = db.query(Thumbnail).filter(
+            Thumbnail.video_id.in_(video_ids),
+            Thumbnail.active.is_(True),
+        ).all()
+        for thumb in thumbs:
+            thumb_map[thumb.video_id] = thumb.url
+    return [
+        {
+            "id": video.id,
+            "title": video.title,
+            "description": video.description,
+            "thumbnail_url": thumb_map.get(video.id),
+            "created_at": video.created_at,
+        }
+        for video in videos
+    ]
+
+
 def _favorite_rows_to_response(rows: list[tuple[Favorite, Video]], user: dict, db: Session) -> list[dict]:
     """お気に入りの DB 行を API レスポンス配列へ変換する。"""
     result = []
@@ -836,6 +883,7 @@ async def home_page(request: Request, db: Session = Depends(get_db)):
             "top_notice": public_settings["top_notice"],
             "hero_image_url": public_settings["hero_image_url"],
             "recommended_videos": recommended_videos,
+            "search_query": "",
             "unread_notification_count": (
                 get_unread_notification_count(current_user["user_id"], db)
                 if current_user
@@ -843,6 +891,52 @@ async def home_page(request: Request, db: Session = Depends(get_db)):
             ),
         },
     )
+
+
+@app.get("/search", response_class=HTMLResponse)
+async def search_page(
+    request: Request,
+    q: str | None = None,
+    db: Session = Depends(get_db),
+):
+    current_user = get_current_user(request)
+    query_text = (q or "").strip()
+    matched_videos = _search_videos(db=db, query_text=query_text, current_user=current_user)
+    videos_payload = _format_search_videos(matched_videos, db)
+    return templates.TemplateResponse(
+        request,
+        "search.html",
+        {
+            "query": query_text,
+            "videos": videos_payload,
+            "total_count": len(videos_payload),
+            "current_user": current_user,
+            "is_admin": current_user and "admin" in current_user["roles"],
+            "is_uploader": current_user and "uploader" in current_user["roles"],
+            "unread_notification_count": (
+                get_unread_notification_count(current_user["user_id"], db)
+                if current_user
+                else 0
+            ),
+        },
+    )
+
+
+@app.get("/api/search")
+async def search_api(
+    request: Request,
+    q: str | None = None,
+    db: Session = Depends(get_db),
+):
+    current_user = get_current_user(request)
+    query_text = (q or "").strip()
+    if not query_text:
+        return JSONResponse({"error": "q is required"}, status_code=400)
+    matched_videos = _search_videos(db=db, query_text=query_text, current_user=current_user)
+    return JSONResponse({
+        "query": query_text,
+        "videos": _format_search_videos(matched_videos, db),
+    })
 
 
 # --------------------------------------------------------------
