@@ -141,6 +141,8 @@ project/
 │       ├── admin_users.html    Admin 専用ユーザ管理ページ
 │       ├── admin_categories.html    Admin 専用カテゴリ管理ページ
 │       ├── admin_tags.html      Admin 専用タグ管理ページ
+│       ├── categories.html      カテゴリ一覧ページ
+│       ├── category_videos.html カテゴリ別動画一覧ページ
 │       ├── tags.html            タグ別動画一覧ページ
 │       ├── search.html          検索結果ページ
 │       └── admin_site_settings.html Admin 専用ホーム画面設定ページ
@@ -163,6 +165,8 @@ project/
 |---------|------|------|------|
 | GET | `/` | ルート（/home へリダイレクト） | - |
 | GET | `/home` | ホーム画面（視聴者向け動画一覧） | 不要（公開動画） |
+| GET | `/categories` | カテゴリ一覧ページ（`/` 区切りカテゴリ名を階層表示） | 不要（公開動画） |
+| GET | `/categories/{id}` | カテゴリ別動画一覧ページ（created_at 降順） | 不要（公開動画） |
 | GET | `/search` | 検索結果ページ（タイトル・説明・タグ・カテゴリを検索） | 不要（公開動画） |
 | GET | `/login` | ログインページ | 不要 |
 | POST | `/api/login` | ログイン処理 | 不要 |
@@ -195,6 +199,8 @@ project/
 | POST | `/api/admin/categories` | カテゴリ作成 | 必要（admin） |
 | POST | `/api/admin/categories/{id}/update` | カテゴリ名変更 | 必要（admin） |
 | POST | `/api/admin/categories/{id}/delete` | カテゴリ削除（動画紐付きは不可） | 必要（admin） |
+| GET | `/api/categories` | カテゴリ一覧取得（閲覧可能動画数付き） | 不要 |
+| GET | `/api/categories/{id}` | カテゴリ情報 + 動画一覧取得（created_at 降順） | 不要 |
 | GET | `/admin/tags` | タグ管理ページ | 必要（admin） |
 | GET | `/tags/{slug}` | タグ別動画一覧ページ | 不要（公開動画） |
 | GET | `/api/tags` | タグ一覧取得 | 不要 |

@@ -67,6 +67,7 @@ docker compose up --build
 ブラウザで `http://localhost` を開く。
 
 - ホーム画面（視聴者向け）: `http://localhost/home`（未ログインでも公開動画を閲覧可）
+- カテゴリ一覧: `http://localhost/categories`（未ログインでも閲覧可）
 - 動画管理一覧: `http://localhost/videos`（テーブル形式。管理・編集用）
 - ログインページ: `http://localhost/login`
 - 新規登録ページ: `http://localhost/register`

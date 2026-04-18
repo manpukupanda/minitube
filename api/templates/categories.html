@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>#{{ tag.name }} - minitube</title>
+  <title>カテゴリ一覧 - minitube</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; }
@@ -12,16 +12,14 @@
     header nav a { color: #aaa; text-decoration: none; font-size: 0.9rem; margin-left: 20px; transition: color 0.2s; }
     header nav a:hover { color: #fff; }
     main { max-width: 1080px; margin: 40px auto; padding: 0 24px; }
-    h2 { font-size: 1.4rem; margin-bottom: 6px; color: #fff; }
-    .slug { color: #888; margin-bottom: 20px; font-size: 0.9rem; }
-    .video-grid { display: flex; flex-wrap: wrap; gap: 20px; }
-    article.video-card { width: 240px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; overflow: hidden; }
-    article.video-card a { text-decoration: none; color: inherit; display: block; }
-    article.video-card a:hover { opacity: 0.85; }
-    .video-card img { width: 100%; height: 135px; object-fit: cover; display: block; background: #333; }
-    .video-card-placeholder { width: 100%; height: 135px; background: #2a2a2a; display: flex; align-items: center; justify-content: center; color: #555; font-size: 1.8rem; }
-    .video-card-body { padding: 10px 12px; }
-    .no-videos { color: #777; padding: 24px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; }
+    h2 { font-size: 1.4rem; margin-bottom: 18px; color: #fff; }
+    .category-list { display: grid; gap: 10px; }
+    .category-item { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; }
+    .category-item a { display: flex; justify-content: space-between; align-items: center; color: inherit; text-decoration: none; padding: 14px 16px; gap: 12px; }
+    .category-item a:hover { background: #232323; }
+    .category-label { color: #fff; min-width: 0; overflow-wrap: anywhere; }
+    .category-count { color: #888; font-size: 0.9rem; flex: 0 0 auto; }
+    .no-categories { color: #777; padding: 24px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; }
   </style>
 </head>
 <body>
@@ -54,28 +52,20 @@
   </header>
 
   <main>
-    <h2>#{{ tag.name }}</h2>
-    <p class="slug">/tags/{{ tag.slug }}</p>
-
-    {% if videos %}
-    <div class="video-grid">
-      {% for video in videos %}
-      <article class="video-card">
-        <a href="/player/{{ video.id }}">
-          {% if video.thumbnail_url %}
-          <img src="{{ video.thumbnail_url }}" alt="{{ video.title }} のサムネイル" loading="lazy" />
-          {% else %}
-          <div class="video-card-placeholder">▶</div>
-          {% endif %}
-          <div class="video-card-body">
-            <h3>{{ video.title }}</h3>
-          </div>
+    <h2>カテゴリ一覧</h2>
+    {% if categories %}
+    <section class="category-list">
+      {% for category in categories %}
+      <article class="category-item">
+        <a href="/categories/{{ category.id }}">
+          <span class="category-label" style="padding-left: {{ category.depth * 18 }}px;">{{ category.display_name }}</span>
+          <span class="category-count">{{ category.video_count }} 件</span>
         </a>
       </article>
       {% endfor %}
-    </div>
+    </section>
     {% else %}
-    <p class="no-videos">このタグの動画はありません</p>
+    <p class="no-categories">カテゴリがありません</p>
     {% endif %}
   </main>
 </body>
