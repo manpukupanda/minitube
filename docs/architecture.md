@@ -163,7 +163,7 @@ project/
 |---------|------|------|------|
 | GET | `/` | ルート（/home へリダイレクト） | - |
 | GET | `/home` | ホーム画面（視聴者向け動画一覧） | 不要（公開動画） |
-| GET | `/search` | 検索結果ページ（タイトル・説明・タグ・カテゴリを検索） | 必要 |
+| GET | `/search` | 検索結果ページ（タイトル・説明・タグ・カテゴリを検索） | 不要（公開動画） |
 | GET | `/login` | ログインページ | 不要 |
 | POST | `/api/login` | ログイン処理 | 不要 |
 | GET | `/logout` | ログアウト | 不要 |
@@ -199,7 +199,7 @@ project/
 | GET | `/tags/{slug}` | タグ別動画一覧ページ | 不要（公開動画） |
 | GET | `/api/tags` | タグ一覧取得 | 不要 |
 | GET | `/api/tags/{slug}` | タグ情報 + 動画一覧取得 | 不要 |
-| GET | `/api/search?q=...` | 検索 API（タイトル・説明・タグ・カテゴリ、created_at 降順） | 必要 |
+| GET | `/api/search?q=...` | 検索 API（タイトル・説明・タグ・カテゴリ、created_at 降順） | 不要（公開動画） |
 | POST | `/api/admin/tags` | タグ作成 | 必要（admin） |
 | PUT | `/api/admin/tags/{id}` | タグ名変更（slug 自動更新） | 必要（admin） |
 | DELETE | `/api/admin/tags/{id}` | タグ削除（動画紐付きは 400） | 必要（admin） |
