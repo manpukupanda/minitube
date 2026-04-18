@@ -395,11 +395,31 @@ def _get_active_thumbnail_map(video_ids: list[str], db: Session) -> dict[str, st
     return thumb_map
 
 
-def _list_viewable_category_videos(category_id: str, current_user: dict | None, db: Session) -> list[Video]:
+def _get_self_and_descendant_ids(category: Category, all_categories: list[Category]) -> list[str]:
+    """カテゴリ自身と下位カテゴリのIDリストを返す。
+
+    カテゴリ名の正規化後のプレフィクス（"<name> / "）に基づいて下位カテゴリを判定する。
+    例: 正規化名 "aa" は "aa / aa-01" を子とみなす。
+    """
+    base = _normalize_category_name(category.name)
+    prefix = base + " / "
+    ids = [category.id]
+    for cat in all_categories:
+        if cat.id == category.id:
+            continue
+        norm = _normalize_category_name(cat.name)
+        if norm.startswith(prefix):
+            ids.append(cat.id)
+    return ids
+
+
+def _list_viewable_category_videos(category: Category, current_user: dict | None, db: Session) -> list[Video]:
+    all_categories = db.query(Category).all()
+    category_ids = _get_self_and_descendant_ids(category, all_categories)
     videos = (
         db.query(Video)
         .filter(
-            Video.category_id == category_id,
+            Video.category_id.in_(category_ids),
             Video.status == "ready",
         )
         .order_by(Video.created_at.desc())
@@ -423,21 +443,25 @@ def _build_category_listing(current_user: dict | None, db: Session) -> list[dict
         video for video in all_ready_categorized_videos
         if can_view_video(video, current_user, db)
     ]
-    video_count_map: dict[str, int] = {}
+    # カテゴリIDごとの直接の動画数
+    direct_count_map: dict[str, int] = {}
     for video in visible_videos:
-        video_count_map[video.category_id] = video_count_map.get(video.category_id, 0) + 1
+        direct_count_map[video.category_id] = direct_count_map.get(video.category_id, 0) + 1
 
     category_items = []
     for category in categories:
         normalized_name = _normalize_category_name(category.name)
         parts = _split_category_name(category.name)
+        # 自身＋下位カテゴリの件数を合算する
+        descendant_ids = _get_self_and_descendant_ids(category, categories)
+        inclusive_count = sum(direct_count_map.get(cid, 0) for cid in descendant_ids)
         category_items.append({
             "id": category.id,
             "name": category.name,
             "normalized_name": normalized_name,
             "display_name": parts[-1] if parts else normalized_name,
             "depth": max(len(parts) - 1, 0),
-            "video_count": video_count_map.get(category.id, 0),
+            "video_count": inclusive_count,
         })
     category_items.sort(key=lambda item: (item["normalized_name"].lower(), item["id"]))
     return category_items
@@ -1076,7 +1100,7 @@ async def get_category_videos_api(
     if not category:
         return JSONResponse({"error": "category not found"}, status_code=404)
     current_user = get_current_user(request)
-    videos = _list_viewable_category_videos(category.id, current_user, db)
+    videos = _list_viewable_category_videos(category, current_user, db)
     thumb_map = _get_active_thumbnail_map([video.id for video in videos], db)
     return JSONResponse({
         "category": {"id": category.id, "name": category.name},
@@ -1129,7 +1153,7 @@ async def category_videos_page(
     if not category:
         return HTMLResponse(content="<h1>404 - カテゴリが見つかりません</h1>", status_code=404)
     current_user = get_current_user(request)
-    videos = _list_viewable_category_videos(category.id, current_user, db)
+    videos = _list_viewable_category_videos(category, current_user, db)
     thumb_map = _get_active_thumbnail_map([video.id for video in videos], db)
     breadcrumbs = _build_category_breadcrumbs(category.id, category.name, db)
     return templates.TemplateResponse(
