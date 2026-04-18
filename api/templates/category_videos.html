@@ -60,7 +60,12 @@
     <p class="breadcrumb">
       <a href="/categories">カテゴリ</a>
       {% for crumb in breadcrumbs %}
-      / {{ crumb.name }}
+      /
+      {% if crumb.category_id %}
+      <a href="/categories/{{ crumb.category_id }}">{{ crumb.name }}</a>
+      {% else %}
+      {{ crumb.name }}
+      {% endif %}
       {% endfor %}
     </p>
 

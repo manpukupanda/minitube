@@ -425,8 +425,6 @@ def _build_category_listing(current_user: dict | None, db: Session) -> list[dict
     ]
     video_count_map: dict[str, int] = {}
     for video in visible_videos:
-        if not video.category_id:
-            continue
         video_count_map[video.category_id] = video_count_map.get(video.category_id, 0) + 1
 
     category_items = []
@@ -443,6 +441,27 @@ def _build_category_listing(current_user: dict | None, db: Session) -> list[dict
         })
     category_items.sort(key=lambda item: (item["normalized_name"].lower(), item["id"]))
     return category_items
+
+
+def _build_category_breadcrumbs(category_id: str, category_name: str, db: Session) -> list[dict]:
+    parts = _split_category_name(category_name)
+    if not parts:
+        return []
+    category_rows = db.query(Category.id, Category.name).all()
+    normalized_to_id: dict[str, str] = {}
+    for row_id, row_name in category_rows:
+        normalized_name = _normalize_category_name(row_name)
+        if normalized_name and normalized_name not in normalized_to_id:
+            normalized_to_id[normalized_name] = row_id
+    breadcrumbs = []
+    for idx, part in enumerate(parts):
+        normalized_path = " / ".join(parts[:idx + 1])
+        breadcrumbs.append({
+            "name": part,
+            "category_id": normalized_to_id.get(normalized_path),
+        })
+    breadcrumbs[-1]["category_id"] = category_id
+    return breadcrumbs
 
 
 # ==============================================================
@@ -1112,8 +1131,7 @@ async def category_videos_page(
     current_user = get_current_user(request)
     videos = _list_viewable_category_videos(category.id, current_user, db)
     thumb_map = _get_active_thumbnail_map([video.id for video in videos], db)
-    category_name_parts = _split_category_name(category.name)
-    breadcrumbs = [{"name": part} for part in category_name_parts]
+    breadcrumbs = _build_category_breadcrumbs(category.id, category.name, db)
     return templates.TemplateResponse(
         request,
         "category_videos.html",
