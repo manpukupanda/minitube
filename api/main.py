@@ -896,12 +896,12 @@ async def home_page(request: Request, db: Session = Depends(get_db)):
 @app.get("/search", response_class=HTMLResponse)
 async def search_page(
     request: Request,
-    user: dict = Depends(require_login),
     q: str | None = None,
     db: Session = Depends(get_db),
 ):
+    current_user = get_current_user(request)
     query_text = (q or "").strip()
-    matched_videos = _search_videos(db=db, query_text=query_text, current_user=user)
+    matched_videos = _search_videos(db=db, query_text=query_text, current_user=current_user)
     videos_payload = _format_search_videos(matched_videos, db)
     return templates.TemplateResponse(
         request,
@@ -910,24 +910,29 @@ async def search_page(
             "query": query_text,
             "videos": videos_payload,
             "total_count": len(videos_payload),
-            "current_user": user,
-            "is_admin": "admin" in user["roles"],
-            "is_uploader": "uploader" in user["roles"],
-            "unread_notification_count": get_unread_notification_count(user["user_id"], db),
+            "current_user": current_user,
+            "is_admin": current_user and "admin" in current_user["roles"],
+            "is_uploader": current_user and "uploader" in current_user["roles"],
+            "unread_notification_count": (
+                get_unread_notification_count(current_user["user_id"], db)
+                if current_user
+                else 0
+            ),
         },
     )
 
 
 @app.get("/api/search")
 async def search_api(
+    request: Request,
     q: str | None = None,
-    user: dict = Depends(require_login),
     db: Session = Depends(get_db),
 ):
+    current_user = get_current_user(request)
     query_text = (q or "").strip()
     if not query_text:
         return JSONResponse({"error": "q is required"}, status_code=400)
-    matched_videos = _search_videos(db=db, query_text=query_text, current_user=user)
+    matched_videos = _search_videos(db=db, query_text=query_text, current_user=current_user)
     return JSONResponse({
         "query": query_text,
         "videos": _format_search_videos(matched_videos, db),

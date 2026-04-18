@@ -49,9 +49,14 @@
       <a href="/admin/tags">タグ管理</a>
       <a href="/admin/site-settings">ホーム画面設定</a>
       {% endif %}
+      {% if current_user %}
       <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
       <a href="/profile">プロフィール</a>
       <a href="/logout">ログアウト</a>
+      {% else %}
+      <a href="/login">ログイン</a>
+      <a href="/register">新規登録</a>
+      {% endif %}
     </nav>
   </header>
 
