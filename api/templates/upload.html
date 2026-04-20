@@ -1,258 +1,77 @@
-<!DOCTYPE html>
-<!--
-  upload.html - 動画アップロードページ
+{% extends "base.html" %}
+{% block title %}アップロード - minitube{% endblock %}
 
-  認証済みユーザが mp4 ファイルをアップロードするためのページ。
-  アップロード後は /api/upload (POST) に送信され、
-  FastAPI が入力ファイルを保存して Redis Queue に split ジョブを登録し、
-  /player/{id} にリダイレクトする。Worker が非同期で HLS 変換を実行する。
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-8 col-lg-6">
+    <div class="card bg-body-tertiary">
+      <div class="card-body p-4">
+        <h1 class="h5 card-title mb-4">動画をアップロード</h1>
 
-  アップロードフロー:
-    1. ユーザが mp4 ファイルを選択する
-    2. フォームを送信すると /api/upload に POST される
-    3. FastAPI がファイルを受け取り、Redis Queue に enqueue する
-    4. /player/{id} にリダイレクトされる（変換は Worker が非同期で実行）
--->
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>アップロード - minitube</title>
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+        <form
+          id="upload-form"
+          action="/api/upload"
+          method="post"
+          enctype="multipart/form-data"
+        >
+          <!-- ファイル選択エリア -->
+          <div
+            class="border border-secondary border-2 rounded p-5 text-center mb-3"
+            style="border-style: dashed !important; cursor: pointer;"
+            onclick="document.getElementById('file-input').click()"
+          >
+            <div class="fs-1 mb-2">📹</div>
+            <p class="text-secondary mb-1">クリックして mp4 ファイルを選択</p>
+            <p class="small text-secondary mb-0">対応形式: .mp4</p>
+          </div>
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f0f0f;
-      color: #e0e0e0;
-      min-height: 100vh;
-      padding: 0;
-    }
+          <p id="file-name" class="text-success small mb-3"></p>
 
-    /* ヘッダーバー */
-    header {
-      background: #1a1a1a;
-      border-bottom: 1px solid #333;
-      padding: 14px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
+          <input
+            type="file"
+            id="file-input"
+            name="file"
+            accept="video/mp4,.mp4"
+            required
+            class="d-none"
+            onchange="onFileSelected(this)"
+          />
 
-    header h1 {
-      font-size: 1.4rem;
-      color: #ff4444;
-    }
+          <!-- 公開設定 -->
+          <div class="mb-4">
+            <label class="form-label">公開設定</label>
+            <div class="d-flex gap-4">
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="visibility" value="public" id="vis-public" checked />
+                <label class="form-check-label" for="vis-public">公開</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="visibility" value="private" id="vis-private" />
+                <label class="form-check-label" for="vis-private">非公開</label>
+              </div>
+            </div>
+          </div>
 
-    header nav a {
-      color: #aaa;
-      text-decoration: none;
-      font-size: 0.9rem;
-      margin-left: 20px;
-      transition: color 0.2s;
-    }
-
-    header nav a:hover {
-      color: #fff;
-    }
-
-    /* メインコンテンツエリア */
-    main {
-      max-width: 720px;
-      margin: 48px auto;
-      padding: 0 24px;
-    }
-
-    /* アップロードカード */
-    .upload-card {
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 8px;
-      padding: 36px;
-      margin-bottom: 40px;
-    }
-
-    .upload-card h2 {
-      font-size: 1.2rem;
-      margin-bottom: 24px;
-      color: #fff;
-    }
-
-    /* ファイル選択エリア */
-    .file-drop-area {
-      border: 2px dashed #444;
-      border-radius: 6px;
-      padding: 40px;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
-    }
-
-    .file-drop-area:hover {
-      border-color: #ff4444;
-      background: rgba(255, 68, 68, 0.05);
-    }
-
-    .file-drop-area p {
-      color: #888;
-      font-size: 0.95rem;
-    }
-
-    .file-drop-area .icon {
-      font-size: 2.5rem;
-      margin-bottom: 12px;
-    }
-
-    /* 選択ファイル名の表示 */
-    #file-name {
-      margin-top: 12px;
-      font-size: 0.9rem;
-      color: #4caf50;
-    }
-
-    /* 非表示のファイル input */
-    input[type="file"] {
-      display: none;
-    }
-
-    /* アップロードボタン */
-    button[type="submit"] {
-      width: 100%;
-      padding: 12px;
-      margin-top: 20px;
-      background: #ff4444;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      font-size: 1rem;
-      font-weight: bold;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    button[type="submit"]:hover {
-      background: #cc2222;
-    }
-
-    button[type="submit"]:disabled {
-      background: #555;
-      cursor: not-allowed;
-    }
-
-    /* アップロード中メッセージ */
-    #uploading-msg {
-      display: none;
-      text-align: center;
-      margin-top: 16px;
-      color: #aaa;
-      font-size: 0.9rem;
-    }
-  </style>
-</head>
-<body>
-  <!-- ページヘッダー -->
-  <header>
-    <h1>▶ minitube</h1>
-    <nav>
-      <a href="/home">ホーム</a>
-      <a href="/categories">カテゴリ</a>
-      {% if is_admin or is_uploader %}
-      <a href="/videos">動画管理</a>
-      {% endif %}
-      <a href="/upload">アップロード</a>
-      {% if is_admin %}
-      <a href="/admin/users">ユーザ管理</a>
-      <a href="/admin/categories">カテゴリ管理</a>
-      <a href="/admin/tags">タグ管理</a>
-      <a href="/admin/site-settings">ホーム画面設定</a>
-      {% endif %}
-      <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
-      <a href="/profile">プロフィール</a>
-      <a href="/logout">ログアウト</a>
-    </nav>
-  </header>
-
-  <main>
-    <!-- アップロードフォーム -->
-    <div class="upload-card">
-      <h2>動画をアップロード</h2>
-
-      <!--
-        /api/upload に multipart/form-data で POST する
-        enctype="multipart/form-data" は必須（ファイルアップロード用）
-      -->
-      <form
-        id="upload-form"
-        action="/api/upload"
-        method="post"
-        enctype="multipart/form-data"
-      >
-        <!-- ファイル選択エリア（クリックで input[type=file] を開く） -->
-        <div class="file-drop-area" onclick="document.getElementById('file-input').click()">
-          <div class="icon">📹</div>
-          <p>クリックして mp4 ファイルを選択</p>
-          <p style="font-size:0.8rem; margin-top:6px; color:#555;">対応形式: .mp4</p>
-        </div>
-
-        <!-- 選択されたファイル名を表示するエリア -->
-        <p id="file-name"></p>
-
-        <!-- 非表示のファイル入力（mp4 のみ受け付ける） -->
-        <input
-          type="file"
-          id="file-input"
-          name="file"
-          accept="video/mp4,.mp4"
-          required
-          onchange="onFileSelected(this)"
-        />
-
-        <!-- 公開設定 -->
-        <div style="margin-top: 20px;">
-          <label style="margin-top: 0; margin-bottom: 10px; display: block;">公開設定</label>
-          <label style="display: inline-flex; align-items: center; margin-right: 20px; margin-top: 0; cursor: pointer;">
-            <input type="radio" name="visibility" value="public" checked style="width: auto; margin-right: 6px;" />
-            公開
-          </label>
-          <label style="display: inline-flex; align-items: center; margin-top: 0; cursor: pointer;">
-            <input type="radio" name="visibility" value="private" style="width: auto; margin-right: 6px;" />
-            非公開
-          </label>
-        </div>
-
-        <button type="submit" id="submit-btn" disabled>アップロード</button>
-
-        <!-- アップロード中はメッセージを表示する -->
-        <p id="uploading-msg">⏳ アップロード中です。しばらくお待ちください...</p>
-      </form>
+          <button type="submit" id="submit-btn" class="btn btn-danger w-100" disabled>アップロード</button>
+          <p id="uploading-msg" class="text-secondary text-center small mt-3 d-none">⏳ アップロード中です。しばらくお待ちください...</p>
+        </form>
+      </div>
     </div>
-  </main>
+  </div>
+</div>
+{% endblock %}
 
-  <script>
-    /**
-     * ファイルが選択されたときの処理
-     * ファイル名を表示し、送信ボタンを有効化する
-     */
-    function onFileSelected(input) {
-      const fileName = input.files[0] ? input.files[0].name : "";
-      document.getElementById("file-name").textContent = fileName
-        ? `選択済み: ${fileName}`
-        : "";
-      document.getElementById("submit-btn").disabled = !fileName;
-    }
+{% block scripts %}
+<script>
+  function onFileSelected(input) {
+    const fileName = input.files[0] ? input.files[0].name : "";
+    document.getElementById("file-name").textContent = fileName ? `選択済み: ${fileName}` : "";
+    document.getElementById("submit-btn").disabled = !fileName;
+  }
 
-    /**
-     * フォーム送信時の処理
-     * 送信ボタンを無効化し、アップロード中メッセージを表示する
-     */
-    document.getElementById("upload-form").addEventListener("submit", function () {
-      document.getElementById("submit-btn").disabled = true;
-      document.getElementById("uploading-msg").style.display = "block";
-    });
-  </script>
-</body>
-</html>
+  document.getElementById("upload-form").addEventListener("submit", function () {
+    document.getElementById("submit-btn").disabled = true;
+    document.getElementById("uploading-msg").classList.remove("d-none");
+  });
+</script>
+{% endblock %}

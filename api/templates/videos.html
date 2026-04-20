@@ -1,272 +1,86 @@
-<!DOCTYPE html>
-<!--
-  videos.html - 動画管理ページ
+{% extends "base.html" %}
+{% block title %}動画管理 - minitube{% endblock %}
 
-  公開動画は未ログインでも閲覧可能。プライベート動画は権限のあるユーザのみ表示される。
--->
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>動画管理 - minitube</title>
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
+{% block content %}
+<h1 class="h4 mb-3">動画管理</h1>
+
+{% if videos %}
+<div class="table-responsive">
+  <table class="table table-dark table-striped align-middle">
+    <thead>
+      <tr>
+        <th>サムネイル</th>
+        <th>タイトル</th>
+        <th>公開設定</th>
+        <th>投稿者</th>
+        <th>投稿日時</th>
+        <th>状態</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for video in videos %}
+      <tr>
+        <td style="width: 90px;">
+          {% if video.thumbnail_url %}
+          <img src="{{ video.thumbnail_url }}" alt="サムネイル"
+               style="width: 80px; height: 45px; object-fit: cover; border-radius: 3px;" />
+          {% else %}
+          <span class="text-secondary">—</span>
+          {% endif %}
+        </td>
+        <td>{{ video.title }}</td>
+        <td>
+          <span class="badge {% if video.visibility == 'public' %}text-bg-success{% else %}text-bg-warning{% endif %}">
+            {% if video.visibility == "public" %}公開{% else %}非公開{% endif %}
+          </span>
+        </td>
+        <td class="text-secondary small">{{ video.owner_email or "不明" }}</td>
+        <td class="ts small" data-ts="{{ video.created_at }}">{{ video.created_at }}</td>
+        <td>
+          {% if video.status == "completed" %}
+            <span class="badge text-bg-success">再生可能</span>
+          {% elif video.status == "processing" %}
+            <span class="badge text-bg-info">処理中</span>
+          {% elif video.status == "queued" %}
+            <span class="badge text-bg-warning">処理待ち</span>
+          {% else %}
+            <span class="badge text-bg-danger">エラー</span>
+          {% endif %}
+        </td>
+        <td class="text-nowrap">
+          {% if video.status == "completed" %}
+            <a href="/player/{{ video.id }}" class="btn btn-sm btn-outline-danger">再生 ▶</a>
+          {% else %}
+            <button class="btn btn-sm btn-outline-secondary" disabled>再生不可</button>
+          {% endif %}
+          {% if video.can_edit %}
+            <a href="/videos/{{ video.id }}/edit" class="btn btn-sm btn-outline-light ms-1">編集 ✏</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="alert alert-secondary">
+  {% if current_user %}
+    まだ視聴できる動画がありません。
+  {% else %}
+    公開動画がありません。<a href="/login" class="alert-link">ログイン</a>するとさらに多くの動画を視聴できる場合があります。
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll(".ts").forEach(function (el) {
+    const ts = parseInt(el.getAttribute("data-ts"), 10);
+    if (!isNaN(ts)) {
+      el.textContent = new Date(ts * 1000).toLocaleString("ja-JP");
     }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f0f0f;
-      color: #e0e0e0;
-      min-height: 100vh;
-    }
-
-    header {
-      background: #1a1a1a;
-      border-bottom: 1px solid #333;
-      padding: 14px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    header h1 {
-      font-size: 1.4rem;
-      color: #ff4444;
-    }
-
-    header nav a {
-      color: #aaa;
-      text-decoration: none;
-      font-size: 0.9rem;
-      margin-left: 20px;
-      transition: color 0.2s;
-    }
-
-    header nav a:hover {
-      color: #fff;
-    }
-
-    main {
-      max-width: 960px;
-      margin: 40px auto;
-      padding: 0 24px;
-    }
-
-    h2 {
-      font-size: 1.2rem;
-      margin-bottom: 20px;
-      color: #fff;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 8px;
-      overflow: hidden;
-    }
-
-    th, td {
-      padding: 12px 16px;
-      text-align: left;
-      border-bottom: 1px solid #2a2a2a;
-      font-size: 0.9rem;
-    }
-
-    th {
-      color: #888;
-      font-weight: normal;
-      background: #222;
-    }
-
-    tr:last-child td {
-      border-bottom: none;
-    }
-
-    td a {
-      color: #ff4444;
-      text-decoration: none;
-    }
-
-    td a:hover {
-      text-decoration: underline;
-    }
-
-    td a.disabled {
-      color: #555;
-      cursor: not-allowed;
-      pointer-events: none;
-    }
-
-    .visibility-badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 10px;
-      font-size: 0.75rem;
-      font-weight: bold;
-    }
-
-    .visibility-public {
-      background: rgba(68, 204, 68, 0.2);
-      color: #66dd66;
-      border: 1px solid #44cc44;
-    }
-
-    .visibility-private {
-      background: rgba(204, 136, 0, 0.2);
-      color: #ddaa44;
-      border: 1px solid #cc8800;
-    }
-
-    .status-badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 3px;
-      font-size: 0.75rem;
-      font-weight: bold;
-    }
-
-    .status-queued {
-      background: #3a3a1a;
-      color: #ccaa00;
-    }
-
-    .status-processing {
-      background: #1a2a3a;
-      color: #4499ff;
-    }
-
-    .status-completed {
-      background: #1a2a1a;
-      color: #44cc44;
-    }
-
-    .status-error {
-      background: #2a1a1a;
-      color: #ff6666;
-    }
-
-    .no-videos {
-      color: #555;
-      text-align: center;
-      padding: 48px;
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 8px;
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>▶ minitube</h1>
-    <nav>
-      <a href="/home">ホーム</a>
-      <a href="/categories">カテゴリ</a>
-      {% if is_admin or is_uploader %}
-      <a href="/videos">動画管理</a>
-      {% endif %}
-      {% if is_uploader or is_admin %}
-      <a href="/upload">アップロード</a>
-      {% endif %}
-      {% if is_admin %}
-      <a href="/admin/users">ユーザ管理</a>
-      <a href="/admin/categories">カテゴリ管理</a>
-      <a href="/admin/tags">タグ管理</a>
-      <a href="/admin/site-settings">ホーム画面設定</a>
-      {% endif %}
-      {% if current_user %}
-      <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
-      <a href="/profile">プロフィール</a>
-      <a href="/logout">ログアウト</a>
-      {% else %}
-      <a href="/login">ログイン</a>
-      <a href="/register">新規登録</a>
-      {% endif %}
-    </nav>
-  </header>
-
-  <main>
-    <h2>動画管理</h2>
-
-    {% if videos %}
-    <table>
-      <thead>
-        <tr>
-          <th>サムネイル</th>
-          <th>タイトル</th>
-          <th>公開設定</th>
-          <th>投稿者</th>
-          <th>投稿日時</th>
-          <th>状態</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for video in videos %}
-        <tr>
-          <td style="width: 80px;">
-            {% if video.thumbnail_url %}
-            <img src="{{ video.thumbnail_url }}" alt="サムネイル"
-                 style="width: 80px; height: 45px; object-fit: cover; border-radius: 3px; vertical-align: middle;" />
-            {% else %}
-            <span style="color: #555; font-size: 0.8rem;">—</span>
-            {% endif %}
-          </td>
-          <td>{{ video.title }}</td>
-          <td>
-            <span class="visibility-badge visibility-{{ video.visibility }}">
-              {% if video.visibility == "public" %}公開{% else %}非公開{% endif %}
-            </span>
-          </td>
-          <td style="color: #888;">{{ video.owner_email or "不明" }}</td>
-          <td class="ts" data-ts="{{ video.created_at }}">{{ video.created_at }}</td>
-          <td>
-            {% if video.status == "completed" %}
-              <span class="status-badge status-completed">再生可能</span>
-            {% elif video.status == "processing" %}
-              <span class="status-badge status-processing">処理中</span>
-            {% elif video.status == "queued" %}
-              <span class="status-badge status-queued">処理待ち</span>
-            {% else %}
-              <span class="status-badge status-error">エラー</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if video.status == "completed" %}
-              <a href="/player/{{ video.id }}">再生 ▶</a>
-            {% else %}
-              <a class="disabled" href="/player/{{ video.id }}">再生不可</a>
-            {% endif %}
-            {% if video.can_edit %}
-              　<a href="/videos/{{ video.id }}/edit">編集 ✏</a>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p class="no-videos">
-      {% if current_user %}
-        まだ視聴できる動画がありません。
-      {% else %}
-        公開動画がありません。<a href="/login" style="color:#ff4444;">ログイン</a>するとさらに多くの動画を視聴できる場合があります。
-      {% endif %}
-    </p>
-    {% endif %}
-  </main>
-
-  <script>
-    document.querySelectorAll(".ts").forEach(function (el) {
-      const ts = parseInt(el.getAttribute("data-ts"), 10);
-      if (!isNaN(ts)) {
-        el.textContent = new Date(ts * 1000).toLocaleString("ja-JP");
-      }
-    });
-  </script>
-</body>
-</html>
+  });
+</script>
+{% endblock %}
