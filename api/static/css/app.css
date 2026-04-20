@@ -4,12 +4,16 @@
 }
 
 body {
-  font-family: Roboto, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background-color: var(--bs-body-bg);
 }
 
 .app-header {
   height: var(--app-header-height);
+}
+
+.app-header-logo {
+  color: #ff4444;
 }
 
 .app-main {

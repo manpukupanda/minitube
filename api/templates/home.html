@@ -66,14 +66,14 @@
 
 {% if current_user and recent_history %}
 <section class="mb-4" id="recent">
-  <h2 class="section-title mb-3">最近見た動画</h2>
+  <h2 class="section-title mb-3">最近見た動画🕒</h2>
   <div class="shelf-row">{% for video in recent_history %}{{ video_card(video) }}{% endfor %}</div>
 </section>
 {% endif %}
 
 {% if current_user %}
 <section class="mb-4" id="watch-later">
-  <h2 class="section-title mb-3">後で見る</h2>
+  <h2 class="section-title mb-3">後で見る📌</h2>
   {% if watch_later_videos %}
   <div class="shelf-row" id="watch-later-grid">
     {% for video in watch_later_videos %}
@@ -94,7 +94,7 @@
 </section>
 
 <section class="mb-4" id="favorites">
-  <h2 class="section-title mb-3">お気に入り</h2>
+  <h2 class="section-title mb-3">お気に入り<span class="text-warning">★</span></h2>
   {% if favorite_videos %}
   <div class="shelf-row" id="favorites-grid">
     {% for video in favorite_videos %}

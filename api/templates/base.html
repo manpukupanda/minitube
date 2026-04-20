@@ -12,10 +12,10 @@
   <header class="navbar navbar-expand-lg fixed-top bg-body-tertiary border-bottom app-header">
     <div class="container-fluid">
       <button class="btn btn-outline-secondary d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileNav" aria-controls="mobileNav">☰</button>
-      <a class="navbar-brand fw-semibold" href="/home">▶ minitube</a>
+      <a class="navbar-brand fw-semibold app-header-logo" href="/home">▶ minitube</a>
       <form class="d-flex flex-grow-1 mx-lg-4" action="/search" method="get" role="search">
-        <input class="form-control me-2" type="search" name="q" placeholder="動画を検索" value="{{ query or search_query or '' }}" />
-        <button class="btn btn-outline-light" type="submit">検索</button>
+        <input class="form-control form-control-sm me-2" type="search" name="q" placeholder="動画を検索" value="{{ query or search_query or '' }}" />
+        <button class="btn btn-sm btn-outline-light" type="submit">検索</button>
       </form>
       <div class="d-flex gap-2 align-items-center">
         {% if current_user %}
@@ -35,15 +35,16 @@
       <a class="list-group-item list-group-item-action" href="/home">ホーム</a>
       <a class="list-group-item list-group-item-action" href="/categories">カテゴリ</a>
       {% if current_user %}
-      <a class="list-group-item list-group-item-action" href="/home#favorites">お気に入り</a>
-      <a class="list-group-item list-group-item-action" href="/home#watch-later">後で見る</a>
-      <a class="list-group-item list-group-item-action" href="/home#recent">最近見た</a>
+      <a class="list-group-item list-group-item-action" href="/home#recent">最近見た動画🕒</a>
+      <a class="list-group-item list-group-item-action" href="/home#watch-later">後で見る📌</a>
+      <a class="list-group-item list-group-item-action" href="/home#favorites">お気に入り<span class="text-warning">★</span></a>
       <a class="list-group-item list-group-item-action" href="/home#all">すべての動画</a>
       {% endif %}
       {% if is_admin or is_uploader %}
+      <div class="list-group-item list-group-item-secondary fw-semibold">
+        管理
+      </div>
       <a class="list-group-item list-group-item-action" href="/videos">動画管理</a>
-      {% endif %}
-      {% if is_uploader or is_admin %}
       <a class="list-group-item list-group-item-action" href="/upload">アップロード</a>
       {% endif %}
       {% if is_admin %}
