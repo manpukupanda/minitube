@@ -1,668 +1,373 @@
-<!DOCTYPE html>
-<!--
-  player.html - 動画プレイヤーページ
+{% extends "base.html" %}
+{% block title %}{{ title }} - minitube{% endblock %}
 
-  このページは hls.js を使って HLS 形式の動画を再生する。
-  ジョブが completed の場合のみ再生可能。
-  queued / processing の場合は処理中表示を行い、定期的に状態をポーリングする。
-
-  再生の仕組み:
-    1. ページロード時にジョブ状態を確認する（job_status テンプレート変数）
-    2. completed なら /api/videos/{id}/url を呼び出して署名付き URL を取得する
-    3. hls.js が署名付き URL を使って Nginx から m3u8 プレイリストを取得する
-    4. Nginx が secure_link_md5 で署名を検証し、有効なら ts セグメントを配信する
-    5. ブラウザで動画が再生される
-
-  ポーリング:
-    - queued / processing の場合は /api/job/{job_id} を 4 秒ごとにポーリングする
-    - completed になったらプレイヤーを初期化して再生を開始する
-    - error になったらエラーメッセージを表示する
--->
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{{ title }} - minitube</title>
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f0f0f;
-      color: #e0e0e0;
-      min-height: 100vh;
-    }
-
-    /* ヘッダーバー */
-    header {
-      background: #1a1a1a;
-      border-bottom: 1px solid #333;
-      padding: 14px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    header h1 {
-      font-size: 1.4rem;
-      color: #ff4444;
-    }
-
-    header nav a {
-      color: #aaa;
-      text-decoration: none;
-      font-size: 0.9rem;
-      margin-left: 20px;
-      transition: color 0.2s;
-    }
-
-    header nav a:hover {
-      color: #fff;
-    }
-
-    /* プレイヤーコンテナ */
-    .player-container {
-      max-width: 960px;
-      margin: 40px auto;
-      padding: 0 24px;
-    }
-
-    /* 動画タイトル */
-    h2 {
-      font-size: 1.3rem;
-      color: #fff;
-    }
-
-    .title-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 20px;
-    }
-
-    .favorite-toggle-btn {
-      border: 1px solid #555;
-      border-radius: 6px;
-      background: #2a2a2a;
-      color: #ddd;
-      padding: 6px 12px;
-      font-size: 0.9rem;
-      cursor: pointer;
-    }
-
-    .watch-later-toggle-btn {
-      border: 1px solid #555;
-      border-radius: 6px;
-      background: #2a2a2a;
-      color: #ddd;
-      padding: 6px 12px;
-      font-size: 0.9rem;
-      cursor: pointer;
-    }
-
-    .favorite-toggle-btn.active {
-      color: #ffcc66;
-      border-color: #aa8855;
-    }
-
-    .watch-later-toggle-btn.active {
-      color: #88ccff;
-      border-color: #4477aa;
-    }
-    .tag-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin: -8px 0 16px;
-    }
-    .tag-pill {
-      display: inline-flex;
-      align-items: center;
-      padding: 4px 10px;
-      border-radius: 999px;
-      border: 1px solid #555;
-      background: #2a2a2a;
-      color: #ddd;
-      text-decoration: none;
-      font-size: 0.8rem;
-    }
-    .tag-pill:hover {
-      border-color: #ff6666;
-      color: #fff;
-    }
-
-    /* 動画プレイヤー本体 */
-    video {
-      width: 100%;
-      max-height: 540px;
-      background: #000;
-      border-radius: 6px;
-      display: block;
-    }
-
-    /* 処理中プレースホルダー */
-    #processing-placeholder {
-      width: 100%;
-      max-height: 540px;
-      height: 320px;
-      background: #1a1a1a;
-      border-radius: 6px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: #888;
-      font-size: 1rem;
-      gap: 16px;
-      border: 1px solid #333;
-    }
-
-    #processing-placeholder .spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid #333;
-      border-top-color: #4499ff;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    /* ステータスメッセージ（読み込み中・エラー等） */
-    #status {
-      margin-top: 16px;
-      font-size: 0.9rem;
-      color: #888;
-      min-height: 1.4em;
-    }
-
-    #status.error {
-      color: #ff6666;
-    }
-
-    /* デバッグ情報（開発用） */
-    .debug-info {
-      margin-top: 24px;
-      padding: 14px;
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      color: #666;
-      word-break: break-all;
-    }
-
-    .debug-info strong {
-      color: #888;
-    }
-
-    /* アップロードページへの戻りリンク */
-    .back-link {
-      display: inline-block;
-      margin-top: 24px;
-      color: #aaa;
-      text-decoration: none;
-      font-size: 0.9rem;
-    }
-
-    .back-link:hover {
-      color: #fff;
-    }
-  </style>
-</head>
-<body>
-  <!-- ページヘッダー -->
-  <header>
-    <h1>▶ minitube</h1>
-    <nav>
-      <a href="/home">ホーム</a>
-      <a href="/categories">カテゴリ</a>
-      {% if is_admin or is_uploader %}
-      <a href="/videos">動画一覧</a>
-      {% endif %}
+{% block content %}
+<div class="player-layout">
+  <section>
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
+      <h1 class="h5 mb-0">{{ title }}</h1>
       {% if current_user %}
-        {% if is_admin or is_uploader %}
-        <a href="/upload">アップロード</a>
-        {% endif %}
-        {% if is_admin %}
-        <a href="/admin/users">ユーザ管理</a>
-        <a href="/admin/categories">カテゴリ管理</a>
-        <a href="/admin/tags">タグ管理</a>
-        <a href="/admin/site-settings">ホーム画面設定</a>
-        {% endif %}
-        <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
-        <a href="/profile">プロフィール</a>
-        <a href="/logout">ログアウト</a>
-      {% else %}
-        <a href="/login">ログイン</a>
-        <a href="/register">新規登録</a>
-      {% endif %}
-    </nav>
-  </header>
-
-  <div class="player-container">
-    <!-- 動画タイトル -->
-    <div class="title-row">
-      <h2>{{ title }}</h2>
-      {% if current_user %}
-      <div style="display: flex; gap: 8px;">
-        <button id="watch-later-toggle-button" type="button" class="watch-later-toggle-btn">📍 後で見る</button>
-        <button id="favorite-toggle-button" type="button" class="favorite-toggle-btn">☆ お気に入り</button>
+      <div class="d-flex gap-2">
+        <button id="watch-later-toggle-button" type="button" class="btn btn-sm btn-outline-info">📍 後で見る</button>
+        <button id="favorite-toggle-button" type="button" class="btn btn-sm btn-outline-warning">☆ お気に入り</button>
       </div>
       {% endif %}
     </div>
     {% if tags %}
-    <div class="tag-list" aria-label="動画タグ">
-      {% for tag in tags %}
-      <a class="tag-pill" href="/tags/{{ tag.slug }}">{{ tag.name }}</a>
-      {% endfor %}
-    </div>
+    <div class="d-flex flex-wrap gap-1 mb-2" aria-label="動画タグ">{% for tag in tags %}<a class="badge text-bg-secondary text-decoration-none" href="/tags/{{ tag.slug }}">#{{ tag.name }}</a>{% endfor %}</div>
     {% endif %}
+    <p class="small text-secondary mb-2">カテゴリ: {{ category_name or '未分類' }}</p>
+    {% if description %}<p class="small mb-3">{{ description }}</p>{% endif %}
 
-    <!-- 処理中プレースホルダー（queued / processing 時に表示） -->
-    <div id="processing-placeholder" style="display: none;">
-      <div class="spinner"></div>
+    <div id="processing-placeholder" class="ratio ratio-16x9 border rounded d-flex flex-column align-items-center justify-content-center gap-2 text-secondary d-none">
+      <div class="spinner-border spinner-border-sm"></div>
       <span id="processing-label">処理中...</span>
     </div>
+    <video id="video-player" class="w-100 rounded border" controls autoplay style="display: none;"></video>
+    <p id="status" class="small text-secondary mt-2">⏳ 状態を確認中...</p>
 
-    <!--
-      HTML5 video タグ
-      hls.js がこの要素に HLS ストリームを接続する
-      controls: ブラウザ標準のコントロールバーを表示する
-      autoplay:  ページロード後に自動再生する
-    -->
-    <video id="video-player" controls autoplay style="display: none;"></video>
-
-    <!-- 読み込みステータスの表示エリア -->
-    <p id="status">⏳ 状態を確認中...</p>
-
-    <!-- 開発用デバッグ情報（HLS URL を表示する） -->
-    <div class="debug-info">
-      <strong>動画 ID:</strong> {{ video_id }}<br />
-      <strong>公開設定:</strong> {% if visibility == "public" %}<span style="color:#66dd66;">公開</span>{% else %}<span style="color:#ddaa44;">非公開</span>{% endif %}<br />
-      <strong>HLS URL:</strong> <span id="hls-url">取得中...</span>
+    <div class="card mt-3 bg-body-tertiary">
+      <div class="card-body small">
+        <div><strong>動画 ID:</strong> {{ video_id }}</div>
+        <div><strong>公開設定:</strong> {% if visibility == "public" %}<span class="text-success">公開</span>{% else %}<span class="text-warning">非公開</span>{% endif %}</div>
+        <div><strong>HLS URL:</strong> <span id="hls-url">取得中...</span></div>
+      </div>
     </div>
 
-    <!-- 視聴権限管理（admin またはオーナーのみ表示） -->
     {% if can_manage and visibility == "private" %}
-    <div class="debug-info" style="margin-top: 16px;">
-      <strong style="color: #ccc;">視聴権限管理</strong>
-      <div style="margin-top: 12px;">
-        <form action="/api/admin/videos/{{ video_id }}/permissions" method="post"
-              style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px;">
-          <input
-            type="email"
-            name="email"
-            placeholder="ユーザのメールアドレス"
-            required
-            style="flex: 1; padding: 6px 10px; background: #2a2a2a; border: 1px solid #444;
-                   border-radius: 4px; color: #e0e0e0; font-size: 0.85rem; outline: none;"
-          />
-          <button type="submit"
-                  style="padding: 6px 14px; background: #333; color: #aaa; border: 1px solid #555;
-                         border-radius: 4px; cursor: pointer; font-size: 0.85rem;">
-            権限付与
-          </button>
+    <div class="card mt-3 bg-body-tertiary">
+      <div class="card-body">
+        <h2 class="h6 mb-3">視聴権限管理</h2>
+        <form action="/api/admin/videos/{{ video_id }}/permissions" method="post" class="d-flex gap-2 mb-3">
+          <input type="email" name="email" class="form-control" placeholder="ユーザのメールアドレス" required />
+          <button type="submit" class="btn btn-outline-light">権限付与</button>
         </form>
         {% if permissions %}
-        <ul style="list-style: none; padding: 0; margin: 0;">
+        <ul class="list-group list-group-flush">
           {% for perm in permissions %}
-          <li style="display: flex; align-items: center; justify-content: space-between;
-                     padding: 6px 0; border-bottom: 1px solid #2a2a2a; font-size: 0.85rem;">
-            <span style="color: #ccc;">{{ perm.email }}</span>
-            <form action="/api/admin/videos/{{ video_id }}/permissions/{{ perm.user_id }}/delete"
-                  method="post" style="display: inline;">
-              <button type="submit"
-                      style="padding: 2px 10px; background: rgba(255,68,68,0.15);
-                             color: #ff6666; border: 1px solid #ff4444; border-radius: 4px;
-                             cursor: pointer; font-size: 0.75rem;">
-                削除
-              </button>
+          <li class="list-group-item d-flex justify-content-between align-items-center bg-body-tertiary px-0">
+            <span>{{ perm.email }}</span>
+            <form action="/api/admin/videos/{{ video_id }}/permissions/{{ perm.user_id }}/delete" method="post">
+              <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
             </form>
           </li>
           {% endfor %}
         </ul>
         {% else %}
-        <p style="color: #555; font-size: 0.85rem;">視聴権限を持つユーザはいません。</p>
+        <p class="small text-secondary mb-0">視聴権限を持つユーザはいません。</p>
         {% endif %}
       </div>
     </div>
     {% endif %}
+  </section>
 
+  <aside>
+    <h2 class="h6 mb-3">関連動画</h2>
+    {% if related_videos %}
+    <div class="d-grid gap-2">
+      {% for video in related_videos %}
+      <a href="/player/{{ video.id }}" class="card text-decoration-none text-body bg-body-tertiary">
+        <div class="row g-0">
+          <div class="col-5">
+            <div class="ratio ratio-16x9">{% if video.thumbnail_url %}<img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" class="w-100 h-100 object-fit-cover" loading="lazy" />{% else %}<div class="d-flex align-items-center justify-content-center text-secondary">▶</div>{% endif %}</div>
+          </div>
+          <div class="col-7"><div class="card-body p-2"><p class="small mb-1">{{ video.title }}</p><p class="small text-secondary mb-0">{{ video.category_name or '未分類' }}</p></div></div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="small text-secondary">関連動画はありません。</p>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}
 
-  </div>
+{% block scripts %}
+<script src="/static/hls/hls.min.js"></script>
+<script>
+  const videoId = "{{ video_id }}";
+  const jobId = "{{ job_id or '' }}";
+  let currentJobStatus = "{{ job_status }}";
 
-  <!--
-    hls.js の読み込み（CDN）
-    hls.js は HLS（HTTP Live Streaming）を Chrome / Firefox で再生するために必要。
-    Safari はネイティブで HLS をサポートするため hls.js は不要だが、
-    hls.js を使うことでクロスブラウザ対応ができる。
+  const _startTime = parseInt(new URLSearchParams(window.location.search).get("t") || "0", 10) || 0;
 
-    CDN: https://cdn.jsdelivr.net/npm/hls.js@latest
-  -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  const videoEl = document.getElementById("video-player");
+  const statusEl = document.getElementById("status");
+  const hlsUrlEl = document.getElementById("hls-url");
+  const placeholderEl = document.getElementById("processing-placeholder");
+  const processingLabelEl = document.getElementById("processing-label");
+  const favoriteToggleButton = document.getElementById("favorite-toggle-button");
+  const watchLaterToggleButton = document.getElementById("watch-later-toggle-button");
+  const isLoggedIn = {{ "true" if current_user else "false" }};
+  let isFavorite = false;
+  let isWatchLater = false;
 
-  <script>
-    // このページの動画 ID と初期ジョブ情報（Jinja2 テンプレートから埋め込まれる）
-    const videoId = "{{ video_id }}";
-    const jobId = "{{ job_id or '' }}";
-    let currentJobStatus = "{{ job_status }}";
+  function setStatus(message, isError = false) {
+    statusEl.textContent = message;
+    statusEl.className = isError ? "small text-danger mt-2" : "small text-secondary mt-2";
+  }
 
-    // URL クエリパラメータ ?t=<秒> から再生開始位置を取得する（続きから再生）
-    const _startTime = parseInt(new URLSearchParams(window.location.search).get("t") || "0", 10) || 0;
+  function renderFavoriteButton() {
+    if (!favoriteToggleButton) return;
+    favoriteToggleButton.classList.toggle("active", isFavorite);
+    favoriteToggleButton.textContent = isFavorite ? "★ お気に入り中" : "☆ お気に入り";
+  }
 
-    const videoEl = document.getElementById("video-player");
-    const statusEl = document.getElementById("status");
-    const hlsUrlEl = document.getElementById("hls-url");
-    const placeholderEl = document.getElementById("processing-placeholder");
-    const processingLabelEl = document.getElementById("processing-label");
-    const favoriteToggleButton = document.getElementById("favorite-toggle-button");
-    const watchLaterToggleButton = document.getElementById("watch-later-toggle-button");
-    const isLoggedIn = {{ "true" if current_user else "false" }};
-    let isFavorite = false;
-    let isWatchLater = false;
-
-    /**
-     * ステータスメッセージを更新する
-     */
-    function setStatus(message, isError = false) {
-      statusEl.textContent = message;
-      statusEl.className = isError ? "error" : "";
+  async function loadFavoriteState() {
+    if (!isLoggedIn || !favoriteToggleButton) return;
+    favoriteToggleButton.disabled = true;
+    try {
+      const response = await fetch("/api/users/me/favorites");
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const favorites = Array.isArray(data.favorites) ? data.favorites : [];
+      isFavorite = favorites.some(function (v) {
+        return v.video_id === videoId;
+      });
+      renderFavoriteButton();
+    } catch (err) {
+      setStatus("お気に入り状態の取得に失敗しました", true);
+    } finally {
+      favoriteToggleButton.disabled = false;
     }
+  }
 
-    function renderFavoriteButton() {
-      if (!favoriteToggleButton) return;
-      favoriteToggleButton.classList.toggle("active", isFavorite);
-      favoriteToggleButton.textContent = isFavorite ? "★ お気に入り中" : "☆ お気に入り";
+  async function toggleFavorite() {
+    if (!isLoggedIn || !favoriteToggleButton) return;
+    favoriteToggleButton.disabled = true;
+    const method = isFavorite ? "DELETE" : "POST";
+    try {
+      const response = await fetch(`/api/videos/${videoId}/favorite`, { method });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      isFavorite = !isFavorite;
+      renderFavoriteButton();
+    } catch (err) {
+      setStatus("お気に入りの更新に失敗しました", true);
+    } finally {
+      favoriteToggleButton.disabled = false;
     }
+  }
 
-    async function loadFavoriteState() {
-      if (!isLoggedIn || !favoriteToggleButton) return;
-      favoriteToggleButton.disabled = true;
-      try {
-        const response = await fetch("/api/users/me/favorites");
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        const favorites = Array.isArray(data.favorites) ? data.favorites : [];
-        isFavorite = favorites.some(function (v) {
-          return v.video_id === videoId;
-        });
-        renderFavoriteButton();
-      } catch (err) {
-        setStatus("お気に入り状態の取得に失敗しました", true);
-      } finally {
-        favoriteToggleButton.disabled = false;
+  function renderWatchLaterButton() {
+    if (!watchLaterToggleButton) return;
+    watchLaterToggleButton.classList.toggle("active", isWatchLater);
+    watchLaterToggleButton.textContent = isWatchLater ? "📌 後で見る中" : "📍 後で見る";
+  }
+
+  async function loadWatchLaterState() {
+    if (!isLoggedIn || !watchLaterToggleButton) return;
+    watchLaterToggleButton.disabled = true;
+    try {
+      const response = await fetch("/api/users/me/watch_later");
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const watchLater = Array.isArray(data.watch_later) ? data.watch_later : [];
+      isWatchLater = watchLater.some(function (v) {
+        return v.video_id === videoId;
+      });
+      renderWatchLaterButton();
+    } catch (err) {
+      setStatus("後で見る状態の取得に失敗しました", true);
+    } finally {
+      watchLaterToggleButton.disabled = false;
+    }
+  }
+
+  async function toggleWatchLater() {
+    if (!isLoggedIn || !watchLaterToggleButton) return;
+    watchLaterToggleButton.disabled = true;
+    const method = isWatchLater ? "DELETE" : "POST";
+    try {
+      const response = await fetch(`/api/videos/${videoId}/watch_later`, { method });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      isWatchLater = !isWatchLater;
+      renderWatchLaterButton();
+    } catch (err) {
+      setStatus("後で見るの更新に失敗しました", true);
+    } finally {
+      watchLaterToggleButton.disabled = false;
+    }
+  }
+
+  function showProcessing(label) {
+    alert("Processing...");
+    placeholderEl.classList.remove("d-none");
+    videoEl.style.display = "none";
+  }
+
+  async function startPlayer() {
+
+    placeholderEl.classList.add("d-none");
+    videoEl.style.display = "block";
+
+    let hlsUrl;
+    try {
+      const response = await fetch(`/api/videos/${videoId}/url`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: 署名付き URL の取得に失敗しました`);
       }
+      const data = await response.json();
+      hlsUrl = data.url;
+      hlsUrlEl.textContent = hlsUrl;
+    } catch (err) {
+      setStatus(`エラー: ${err.message}`, true);
+      return;
     }
 
-    async function toggleFavorite() {
-      if (!isLoggedIn || !favoriteToggleButton) return;
-      favoriteToggleButton.disabled = true;
-      const method = isFavorite ? "DELETE" : "POST";
-      try {
-        const response = await fetch(`/api/videos/${videoId}/favorite`, { method });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        isFavorite = !isFavorite;
-        renderFavoriteButton();
-      } catch (err) {
-        setStatus("お気に入りの更新に失敗しました", true);
-      } finally {
-        favoriteToggleButton.disabled = false;
-      }
-    }
-
-    function renderWatchLaterButton() {
-      if (!watchLaterToggleButton) return;
-      watchLaterToggleButton.classList.toggle("active", isWatchLater);
-      watchLaterToggleButton.textContent = isWatchLater ? "📌 後で見る中" : "📍 後で見る";
-    }
-
-    async function loadWatchLaterState() {
-      if (!isLoggedIn || !watchLaterToggleButton) return;
-      watchLaterToggleButton.disabled = true;
-      try {
-        const response = await fetch("/api/users/me/watch_later");
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        const watchLater = Array.isArray(data.watch_later) ? data.watch_later : [];
-        isWatchLater = watchLater.some(function (v) {
-          return v.video_id === videoId;
-        });
-        renderWatchLaterButton();
-      } catch (err) {
-        setStatus("後で見る状態の取得に失敗しました", true);
-      } finally {
-        watchLaterToggleButton.disabled = false;
-      }
-    }
-
-    async function toggleWatchLater() {
-      if (!isLoggedIn || !watchLaterToggleButton) return;
-      watchLaterToggleButton.disabled = true;
-      const method = isWatchLater ? "DELETE" : "POST";
-      try {
-        const response = await fetch(`/api/videos/${videoId}/watch_later`, { method });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        isWatchLater = !isWatchLater;
-        renderWatchLaterButton();
-      } catch (err) {
-        setStatus("後で見るの更新に失敗しました", true);
-      } finally {
-        watchLaterToggleButton.disabled = false;
-      }
-    }
-
-    /**
-     * 処理中プレースホルダーを表示する
-     */
-    function showProcessing(label) {
-      processingLabelEl.textContent = label;
-      placeholderEl.style.display = "flex";
-      videoEl.style.display = "none";
-    }
-
-    /**
-     * プレイヤーを表示して HLS 再生を開始する
-     */
-    async function startPlayer() {
-      placeholderEl.style.display = "none";
-      videoEl.style.display = "block";
-
-      // FastAPI から署名付き HLS URL を取得する
-      let hlsUrl;
-      try {
-        const response = await fetch(`/api/videos/${videoId}/url`);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: 署名付き URL の取得に失敗しました`);
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        debug: false,
+        maxBufferLength: 30,
+      });
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(videoEl);
+      hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        setStatus("▶ 再生中");
+        if (_startTime > 0) {
+          videoEl.currentTime = _startTime;
         }
-        const data = await response.json();
-        hlsUrl = data.url;
-        hlsUrlEl.textContent = hlsUrl;
-      } catch (err) {
-        setStatus(`エラー: ${err.message}`, true);
-        return;
-      }
-
-      // hls.js を使って動画を再生する
-      if (Hls.isSupported()) {
-        const hls = new Hls({
-          debug: false,
-          maxBufferLength: 30,
+        videoEl.play().catch(function () {
+          setStatus("クリックで再生してください");
         });
-        hls.loadSource(hlsUrl);
-        hls.attachMedia(videoEl);
-        hls.on(Hls.Events.MANIFEST_PARSED, function () {
-          setStatus("▶ 再生中");
-          if (_startTime > 0) {
-            videoEl.currentTime = _startTime;
+        notifyWatchStart();
+        startProgressReporting();
+      });
+      hls.on(Hls.Events.ERROR, function (event, data) {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              setStatus("ネットワークエラーが発生しました。再接続中...", true);
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              setStatus("メディアエラーが発生しました。回復を試みています...", true);
+              hls.recoverMediaError();
+              break;
+            default:
+              setStatus(`再生エラー: ${data.type}`, true);
+              hls.destroy();
+              break;
           }
-          videoEl.play().catch(function () {
-            setStatus("クリックで再生してください");
-          });
-          notifyWatchStart();
-          startProgressReporting();
-        });
-        hls.on(Hls.Events.ERROR, function (event, data) {
-          if (data.fatal) {
-            switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                setStatus("ネットワークエラーが発生しました。再接続中...", true);
-                hls.startLoad();
-                break;
-              case Hls.ErrorTypes.MEDIA_ERROR:
-                setStatus("メディアエラーが発生しました。回復を試みています...", true);
-                hls.recoverMediaError();
-                break;
-              default:
-                setStatus(`再生エラー: ${data.type}`, true);
-                hls.destroy();
-                break;
-            }
-          }
-        });
-      } else if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
-        videoEl.src = hlsUrl;
-        videoEl.addEventListener("loadedmetadata", function () {
-          setStatus("▶ 再生中");
-          if (_startTime > 0) {
-            videoEl.currentTime = _startTime;
-          }
-          videoEl.play().catch(function () {
-            setStatus("クリックで再生してください");
-          });
-          notifyWatchStart();
-          startProgressReporting();
-        });
-        videoEl.addEventListener("error", function () {
-          setStatus("動画の読み込みに失敗しました", true);
-        });
-      } else {
-        setStatus("このブラウザは HLS の再生に対応していません", true);
-      }
-    }
-
-    // ==============================================================
-    // 視聴履歴 API（watch / progress / complete）
-    // ==============================================================
-
-    /** 再生開始時に POST /api/videos/{id}/watch を呼び出す。*/
-    function notifyWatchStart() {
-      fetch(`/api/videos/${videoId}/watch`, { method: "POST" }).catch(function () {});
-    }
-
-    /** 視聴完了時に POST /api/videos/{id}/complete を呼び出す。*/
-    function notifyWatchComplete() {
-      fetch(`/api/videos/${videoId}/complete`, { method: "POST" }).catch(function () {});
-    }
-
-    /** 定期的に再生位置を POST /api/videos/{id}/progress へ送信する（15 秒間隔）。*/
-    let _progressIntervalId = null;
-    let _endedListenerAdded = false;
-    function startProgressReporting() {
-      if (_progressIntervalId !== null) return;
-      _progressIntervalId = setInterval(function () {
-        if (videoEl.paused || videoEl.ended) return;
-        const position = Math.floor(videoEl.currentTime);
-        const duration = isFinite(videoEl.duration) ? Math.floor(videoEl.duration) : null;
-        const body = { position };
-        if (duration !== null) body.duration = duration;
-        fetch(`/api/videos/${videoId}/progress`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }).catch(function () {});
-      }, 15000);
-      if (!_endedListenerAdded) {
-        _endedListenerAdded = true;
-        videoEl.addEventListener("ended", function () {
-          clearInterval(_progressIntervalId);
-          _progressIntervalId = null;
-          notifyWatchComplete();
-        });
-      }
-    }
-
-    /**
-     * /api/job/{job_id} をポーリングしてジョブ状態を確認する
-     * completed になったら再生を開始する
-     * error になったらエラーを表示する
-     */
-    async function pollJobStatus() {
-      if (!jobId) {
-        // ジョブが存在しない場合（移行前の既存動画）はそのまま再生する
-        await startPlayer();
-        return;
-      }
-
-      try {
-        const response = await fetch(`/api/job/${jobId}`);
-        if (!response.ok) {
-          setStatus("ジョブ状態の取得に失敗しました", true);
-          return;
         }
-        const data = await response.json();
-        currentJobStatus = data.status;
-      } catch (err) {
-        setStatus(`エラー: ${err.message}`, true);
-        return;
-      }
+      });
+    } else if (videoEl.canPlayType("application/vnd.apple.mpegurl")) {
+      videoEl.src = hlsUrl;
+      videoEl.addEventListener("loadedmetadata", function () {
+        setStatus("▶ 再生中");
+        if (_startTime > 0) {
+          videoEl.currentTime = _startTime;
+        }
+        videoEl.play().catch(function () {
+          setStatus("クリックで再生してください");
+        });
+        notifyWatchStart();
+        startProgressReporting();
+      });
+      videoEl.addEventListener("error", function () {
+        setStatus("動画の読み込みに失敗しました", true);
+      });
+    } else {
+      setStatus("このブラウザは HLS の再生に対応していません", true);
+    }
+  }
 
-      if (currentJobStatus === "completed") {
-        setStatus("");
-        await startPlayer();
-      } else if (currentJobStatus === "error") {
-        placeholderEl.style.display = "none";
-        setStatus("動画の処理中にエラーが発生しました。", true);
-      } else if (currentJobStatus === "processing") {
-        showProcessing("処理中...");
-        setStatus("動画を変換中です。しばらくお待ちください...");
-        // 4 秒後に再度ポーリングする
-        setTimeout(pollJobStatus, 4000);
-      } else {
-        // queued
-        showProcessing("処理待ち...");
-        setStatus("処理待ちです。しばらくお待ちください...");
-        setTimeout(pollJobStatus, 4000);
-      }
+  function notifyWatchStart() {
+    fetch(`/api/videos/${videoId}/watch`, { method: "POST" }).catch(function () {});
+  }
+
+  function notifyWatchComplete() {
+    fetch(`/api/videos/${videoId}/complete`, { method: "POST" }).catch(function () {});
+  }
+
+  let _progressIntervalId = null;
+  let _endedListenerAdded = false;
+  function startProgressReporting() {
+    if (_progressIntervalId !== null) return;
+    _progressIntervalId = setInterval(function () {
+      if (videoEl.paused || videoEl.ended) return;
+      const position = Math.floor(videoEl.currentTime);
+      const duration = isFinite(videoEl.duration) ? Math.floor(videoEl.duration) : null;
+      const body = { position };
+      if (duration !== null) body.duration = duration;
+      fetch(`/api/videos/${videoId}/progress`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(function () {});
+    }, 15000);
+    if (!_endedListenerAdded) {
+      _endedListenerAdded = true;
+      videoEl.addEventListener("ended", function () {
+        clearInterval(_progressIntervalId);
+        _progressIntervalId = null;
+        notifyWatchComplete();
+      });
+    }
+  }
+
+  async function pollJobStatus() {
+    if (!jobId) {
+      await startPlayer();
+      return;
     }
 
-    // 初期状態に応じて処理を分岐する
-    (async function init() {
-      if (watchLaterToggleButton) {
-        renderWatchLaterButton();
-        watchLaterToggleButton.addEventListener("click", toggleWatchLater);
-        await loadWatchLaterState();
+    try {
+      const response = await fetch(`/api/job/${jobId}`);
+      if (!response.ok) {
+        setStatus("ジョブ状態の取得に失敗しました", true);
+        return;
       }
-      if (favoriteToggleButton) {
-        renderFavoriteButton();
-        favoriteToggleButton.addEventListener("click", toggleFavorite);
-        await loadFavoriteState();
-      }
-      if (currentJobStatus === "completed") {
-        // すでに完了している場合はそのまま再生する
-        setStatus("");
-        await startPlayer();
-      } else if (currentJobStatus === "error") {
-        placeholderEl.style.display = "none";
-        setStatus("動画の処理中にエラーが発生しました。", true);
-      } else if (currentJobStatus === "processing") {
-        showProcessing("処理中...");
-        setStatus("動画を変換中です。しばらくお待ちください...");
-        setTimeout(pollJobStatus, 4000);
-      } else {
-        // queued またはその他
-        showProcessing("処理待ち...");
-        setStatus("処理待ちです。しばらくお待ちください...");
-        setTimeout(pollJobStatus, 4000);
-      }
-    })();
-  </script>
-</body>
-</html>
+      const data = await response.json();
+      currentJobStatus = data.status;
+    } catch (err) {
+      setStatus(`エラー: ${err.message}`, true);
+      return;
+    }
+
+    if (currentJobStatus === "completed") {
+      setStatus("");
+      await startPlayer();
+    } else if (currentJobStatus === "error") {
+      placeholderEl.classList.add("d-none");
+      setStatus("動画の処理中にエラーが発生しました。", true);
+    } else if (currentJobStatus === "processing") {
+      showProcessing("処理中...");
+      setStatus("動画を変換中です。しばらくお待ちください...");
+      setTimeout(pollJobStatus, 4000);
+    } else {
+      showProcessing("処理待ち...");
+      setStatus("処理待ちです。しばらくお待ちください...");
+      setTimeout(pollJobStatus, 4000);
+    }
+  }
+
+  (async function init() {
+    if (watchLaterToggleButton) {
+      renderWatchLaterButton();
+      watchLaterToggleButton.addEventListener("click", toggleWatchLater);
+      await loadWatchLaterState();
+    }
+    if (favoriteToggleButton) {
+      renderFavoriteButton();
+      favoriteToggleButton.addEventListener("click", toggleFavorite);
+      await loadFavoriteState();
+    }
+    if (currentJobStatus === "completed") {
+      setStatus("");
+      await startPlayer();
+    } else if (currentJobStatus === "error") {
+      placeholderEl.classList.add("d-none");
+      setStatus("動画の処理中にエラーが発生しました。", true);
+    } else if (currentJobStatus === "processing") {
+      showProcessing("処理中...");
+      setStatus("動画を変換中です。しばらくお待ちください...");
+      setTimeout(pollJobStatus, 4000);
+    } else {
+      showProcessing("処理待ち...");
+      setStatus("処理待ちです。しばらくお待ちください...");
+      setTimeout(pollJobStatus, 4000);
+    }
+  })();
+</script>
+{% endblock %}

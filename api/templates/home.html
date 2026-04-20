@@ -1,563 +1,192 @@
-<!DOCTYPE html>
-<!--
-  home.html - ホーム画面（視聴者向け）
+{% extends "base.html" %}
+{% block title %}ホーム - minitube{% endblock %}
 
-  視聴者の入口となるホーム画面。
-  ログイン済みユーザは視聴可能な動画一覧（public + private）を表示。
-  未ログインユーザは公開動画一覧のみ表示（公開動画なしの場合は /login にリダイレクト）。
-
-  ログイン済みの場合は「最近見た動画」「続きから再生」セクションも表示する。
-
-  Bootstrap 等の UI フレームワーク導入前の骨格実装。
-  HTML は semantic に構造化されており、後でクラスを付けるだけで整う構造になっている。
--->
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ホーム - minitube</title>
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f0f0f;
-      color: #e0e0e0;
-      min-height: 100vh;
-    }
-
-    header {
-      background: #1a1a1a;
-      border-bottom: 1px solid #333;
-      padding: 14px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    header h1 {
-      font-size: 1.4rem;
-      color: #ff4444;
-    }
-
-    header nav a {
-      color: #aaa;
-      text-decoration: none;
-      font-size: 0.9rem;
-      margin-left: 20px;
-      transition: color 0.2s;
-    }
-
-    header nav a:hover {
-      color: #fff;
-    }
-
-    main {
-      max-width: 1080px;
-      margin: 40px auto;
-      padding: 0 24px;
-    }
-
-    section {
-      margin-bottom: 48px;
-    }
-
-    .search-section {
-      margin-bottom: 28px;
-    }
-
-    .search-form {
-      width: 100%;
-      max-width: 680px;
-      display: flex;
-      gap: 8px;
-    }
-
-    .search-input {
-      flex: 1;
-      min-width: 0;
-      padding: 11px 12px;
-      border: 1px solid #444;
-      border-radius: 6px;
-      background: #1a1a1a;
-      color: #fff;
-      font-size: 0.95rem;
-    }
-
-    .search-input::placeholder {
-      color: #888;
-    }
-
-    .search-button {
-      border: 1px solid #555;
-      border-radius: 6px;
-      background: #2a2a2a;
-      color: #fff;
-      padding: 0 14px;
-      font-size: 0.9rem;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-
-    .search-button:hover {
-      background: #343434;
-    }
-
-    section h2 {
-      font-size: 1.2rem;
-      margin-bottom: 20px;
-      color: #fff;
-    }
-
-    .video-grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 20px;
-    }
-
-    article.video-card {
-      width: 240px;
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 8px;
-      overflow: hidden;
-    }
-
-    article.video-card a {
-      text-decoration: none;
-      color: inherit;
-      display: block;
-    }
-
-    article.video-card a:hover {
-      opacity: 0.85;
-    }
-
-    .video-card img {
-      width: 100%;
-      height: 135px;
-      object-fit: cover;
-      display: block;
-      background: #333;
-    }
-
-    .video-card-placeholder {
-      width: 100%;
-      height: 135px;
-      background: #2a2a2a;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #555;
-      font-size: 1.8rem;
-    }
-
-    .video-card-body {
-      padding: 10px 12px;
-    }
-
-    .video-card-body p {
-      font-size: 0.9rem;
-      color: #ccc;
-      margin-top: 4px;
-      word-break: break-all;
-    }
-
-    .video-card-body-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .favorite-remove-btn {
-      border: 1px solid #555;
-      background: #2a2a2a;
-      color: #ffcc66;
-      border-radius: 4px;
-      font-size: 0.85rem;
-      width: 28px;
-      height: 28px;
-      cursor: pointer;
-      line-height: 1;
-      flex: 0 0 auto;
-    }
-
-    .watch-later-remove-btn {
-      border: 1px solid #555;
-      background: #2a2a2a;
-      color: #ffcc66;
-      border-radius: 4px;
-      font-size: 0.85rem;
-      width: 28px;
-      height: 28px;
-      cursor: pointer;
-      line-height: 1;
-      flex: 0 0 auto;
-    }
-
-    .favorite-remove-btn:hover {
-      background: #343434;
-      color: #ffdd88;
-    }
-
-    .watch-later-remove-btn:hover {
-      background: #343434;
-      color: #ffdd88;
-    }
-
-    .video-card-body .resume-info {
-      font-size: 0.78rem;
-      color: #888;
-      margin-top: 4px;
-    }
-
-    .progress-bar-track {
-      width: 100%;
-      height: 3px;
-      background: #333;
-      border-radius: 2px;
-      margin-top: 6px;
-      overflow: hidden;
-    }
-
-    .progress-bar-fill {
-      height: 100%;
-      background: #ff4444;
-      border-radius: 2px;
-    }
-
-    .no-videos {
-      color: #555;
-      text-align: center;
-      padding: 48px;
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 8px;
-    }
-    .link-accent {
-      color: #ff4444;
-    }
-    section.notice {
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 8px;
-      padding: 16px;
-      white-space: pre-wrap;
-      line-height: 1.6;
-    }
-    .hero-image img {
-      width: 100%;
-      max-height: 420px;
-      object-fit: cover;
-      border-radius: 10px;
-      border: 1px solid #333;
-      display: block;
-    }
-    @media (max-width: 600px) {
-      .search-form {
-        max-width: 100%;
-      }
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>▶ minitube</h1>
-    <nav>
-      <a href="/home">ホーム</a>
-      <a href="/categories">カテゴリ</a>
-      {% if is_admin or is_uploader %}
-      <a href="/videos">動画一覧</a>
-      {% endif %}
-      {% if is_uploader or is_admin %}
-      <a href="/upload">アップロード</a>
-      {% endif %}
-      {% if is_admin %}
-      <a href="/admin/users">ユーザ管理</a>
-      <a href="/admin/categories">カテゴリ管理</a>
-      <a href="/admin/tags">タグ管理</a>
-      <a href="/admin/site-settings">ホーム画面設定</a>
-      {% endif %}
-      {% if current_user %}
-      <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
-      <a href="/profile">プロフィール</a>
-      <a href="/logout">ログアウト</a>
+{% macro video_card(video, href='/player/') %}
+<div class="card video-card bg-body-tertiary rounded overflow-hidden">
+  <a class="text-decoration-none" href="{{ href }}{{ video.id }}">
+    <div class="ratio ratio-16x9">
+      {% if video.thumbnail_url %}
+      <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" class="w-100 h-100 object-fit-cover" loading="lazy" />
       {% else %}
-      <a href="/login">ログイン</a>
-      <a href="/register">新規登録</a>
+      <div class="d-flex align-items-center justify-content-center text-secondary">▶</div>
       {% endif %}
-    </nav>
-  </header>
-
-  <main>
-    <section class="search-section" aria-label="動画検索">
-      <form class="search-form" action="/search" method="get">
-        <input
-          type="search"
-          name="q"
-          class="search-input"
-          placeholder="動画を検索"
-          value="{{ search_query }}"
-          required
-        />
-        <button type="submit" class="search-button">検索</button>
-      </form>
-    </section>
-
-    {% if hero_image_url %}
-    <section class="hero-image" aria-label="ヒーローイメージ">
-      <img src="{{ hero_image_url }}" alt="メインビジュアル" />
-    </section>
+    </div>
+  </a>
+  <div class="card-body p-2">
+    <a class="text-decoration-none text-body" href="{{ href }}{{ video.id }}"><h3 class="card-title fs-6 mb-1">{{ video.title }}</h3></a>
+    <p class="small text-secondary mb-1">{{ video.category_name or '未分類' }}</p>
+    {% if video.tags %}
+    <div class="d-flex flex-wrap gap-1 mb-1">{% for tag in video.tags[:3] %}<a class="badge text-bg-secondary text-decoration-none" href="/tags/{{ tag.slug }}">#{{ tag.name }}</a>{% endfor %}</div>
     {% endif %}
-
-    {% if top_notice %}
-    <section class="notice" aria-label="お知らせ">{{ top_notice }}</section>
+    {% if is_admin %}
+    <span class="badge {% if video.visibility == 'public' %}text-bg-success{% else %}text-bg-warning{% endif %}">{% if video.visibility == 'public' %}公開{% else %}非公開{% endif %}</span>
     {% endif %}
+  </div>
+</div>
+{% endmacro %}
 
-    {% if recommended_videos %}
-    <section aria-label="おすすめ動画">
-      <h2>おすすめ動画</h2>
-      <div class="video-grid">
-        {% for video in recommended_videos %}
-        <article class="video-card">
-          <a href="/player/{{ video.id }}">
-            {% if video.thumbnail_url %}
-            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
-            {% else %}
-            <div class="video-card-placeholder" aria-hidden="true">▶</div>
-            {% endif %}
-            <div class="video-card-body">
-              <p>{{ video.title }}</p>
-            </div>
-          </a>
-        </article>
-        {% endfor %}
-      </div>
-    </section>
-    {% endif %}
+{% block content %}
+{% if hero_image_url %}
+<div class="mb-3"><img src="{{ hero_image_url }}" alt="メインビジュアル" class="img-fluid rounded border" /></div>
+{% endif %}
+{% if top_notice %}
+<div class="alert alert-secondary" role="alert" style="white-space: pre-wrap;">{{ top_notice }}</div>
+{% endif %}
 
-    {% if current_user and resume_history %}
-    <section aria-label="続きから再生">
-      <h2>続きから再生</h2>
-      <div class="video-grid">
-        {% for video in resume_history %}
-        <article class="video-card">
-          <a href="/player/{{ video.id }}?t={{ video.last_position }}">
-            {% if video.thumbnail_url %}
-            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
-            {% else %}
-            <div class="video-card-placeholder" aria-hidden="true">▶</div>
-            {% endif %}
-            <div class="video-card-body">
-              <p>{{ video.title }}</p>
-              {% if video.duration and video.duration > 0 %}
-              <div class="progress-bar-track" role="progressbar"
-                   aria-valuenow="{{ video.last_position }}"
-                   aria-valuemin="0" aria-valuemax="{{ video.duration }}">
-                <div class="progress-bar-fill"
-                     style="width: {{ [(video.last_position / video.duration * 100), 100] | min }}%;"></div>
-              </div>
-              <p class="resume-info">{{ (video.last_position // 60) }}:{{ "%02d" | format(video.last_position % 60) }} / {{ (video.duration // 60) }}:{{ "%02d" | format(video.duration % 60) }}</p>
-              {% else %}
-              <p class="resume-info">{{ (video.last_position // 60) }}:{{ "%02d" | format(video.last_position % 60) }} から再生</p>
-              {% endif %}
-            </div>
-          </a>
-        </article>
-        {% endfor %}
-      </div>
-    </section>
-    {% endif %}
+{% if recommended_videos %}
+<section class="mb-4">
+  <h2 class="section-title mb-3">おすすめ</h2>
+  <div class="shelf-row">{% for video in recommended_videos %}{{ video_card(video) }}{% endfor %}</div>
+</section>
+{% endif %}
 
-    {% if current_user and recent_history %}
-    <section aria-label="最近見た動画">
-      <h2>最近見た動画</h2>
-      <div class="video-grid">
-        {% for video in recent_history %}
-        <article class="video-card">
-          <a href="/player/{{ video.id }}">
-            {% if video.thumbnail_url %}
-            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
-            {% else %}
-            <div class="video-card-placeholder" aria-hidden="true">▶</div>
-            {% endif %}
-            <div class="video-card-body">
-              <p>{{ video.title }}</p>
-              {% if video.completed %}
-              <p class="resume-info">✓ 視聴済み</p>
-              {% endif %}
-            </div>
-          </a>
-        </article>
-        {% endfor %}
-      </div>
-    </section>
-    {% endif %}
-
-    {% if current_user %}
-    <section aria-label="後で見る">
-      <h2>後で見る（Watch Later）</h2>
-      {% if watch_later_videos %}
-      <div class="video-grid" id="watch-later-grid">
-        {% for video in watch_later_videos %}
-        <article class="video-card" data-watch-later-video-id="{{ video.id }}">
-          <a href="/player/{{ video.id }}">
-            {% if video.thumbnail_url %}
-            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
-            {% else %}
-            <div class="video-card-placeholder" aria-hidden="true">▶</div>
-            {% endif %}
-          </a>
-          <div class="video-card-body">
-            <div class="video-card-body-row">
-              <p>{{ video.title }}</p>
-              <button type="button"
-                      class="watch-later-remove-btn"
-                      data-watch-later-remove="{{ video.id }}"
-                      aria-label="後で見る解除">
-                📌
-              </button>
-            </div>
-          </div>
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p class="no-videos" id="watch-later-empty-message">まだ後で見る動画がありません。</p>
-      {% endif %}
-    </section>
-
-    <section aria-label="お気に入り">
-      <h2>お気に入り</h2>
-      {% if favorite_videos %}
-      <div class="video-grid" id="favorites-grid">
-        {% for video in favorite_videos %}
-        <article class="video-card" data-favorite-video-id="{{ video.id }}">
-          <a href="/player/{{ video.id }}">
-            {% if video.thumbnail_url %}
-            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
-            {% else %}
-            <div class="video-card-placeholder" aria-hidden="true">▶</div>
-            {% endif %}
-          </a>
-          <div class="video-card-body">
-            <div class="video-card-body-row">
-              <p>{{ video.title }}</p>
-              <button type="button"
-                      class="favorite-remove-btn"
-                      data-favorite-remove="{{ video.id }}"
-                      aria-label="お気に入り解除">
-                ★
-              </button>
-            </div>
-          </div>
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p class="no-videos" id="favorites-empty-message">まだお気に入りがありません。</p>
-      {% endif %}
-    </section>
-    {% endif %}
-
-    <section aria-label="動画一覧">
-      <h2>動画一覧</h2>
-
-      {% if videos %}
-      <div class="video-grid">
-        {% for video in videos %}
-        <article class="video-card">
-          <a href="/player/{{ video.id }}">
-            {% if video.thumbnail_url %}
-            <img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" />
-            {% else %}
-            <div class="video-card-placeholder" aria-hidden="true">▶</div>
-            {% endif %}
-            <div class="video-card-body">
-              <p>{{ video.title }}</p>
-            </div>
-          </a>
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p class="no-videos">
-        {% if current_user %}
-          まだ視聴できる動画がありません。
-        {% else %}
-          公開動画がありません。<a href="/login" class="link-accent">ログイン</a>するとさらに多くの動画を視聴できる場合があります。
+{% if current_user and resume_history %}
+<section class="mb-4" id="resume">
+  <h2 class="section-title mb-3">続きから再生</h2>
+  <div class="shelf-row">
+    {% for video in resume_history %}
+    <div class="card video-card bg-body-tertiary rounded overflow-hidden">
+      <a class="text-decoration-none" href="/player/{{ video.id }}?t={{ video.last_position }}">
+        <div class="ratio ratio-16x9">
+          {% if video.thumbnail_url %}<img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" class="w-100 h-100 object-fit-cover" loading="lazy" />{% else %}<div class="d-flex align-items-center justify-content-center text-secondary">▶</div>{% endif %}
+        </div>
+      </a>
+      <div class="card-body p-2">
+        <h3 class="card-title fs-6 mb-1">{{ video.title }}</h3>
+        {% if video.duration and video.duration > 0 %}
+        <div class="progress" style="height: 4px;"><div class="progress-bar" style="width: {{ [(video.last_position / video.duration * 100), 100] | min }}%;"></div></div>
+        <p class="small text-secondary mb-0 mt-1">{{ (video.last_position // 60) }}:{{ "%02d" | format(video.last_position % 60) }} / {{ (video.duration // 60) }}:{{ "%02d" | format(video.duration % 60) }}</p>
         {% endif %}
-      </p>
-      {% endif %}
-    </section>
-  </main>
-  {% if current_user %}
-  <script>
-    (function initWatchLaterRemoval() {
-      const grid = document.getElementById("watch-later-grid");
-      const buttons = document.querySelectorAll("[data-watch-later-remove]");
-      buttons.forEach(function (button) {
-        button.addEventListener("click", async function (event) {
-          event.preventDefault();
-          event.stopPropagation();
-          const videoId = button.getAttribute("data-watch-later-remove");
-          if (!videoId) return;
-          button.disabled = true;
-          try {
-            const response = await fetch(`/api/videos/${videoId}/watch_later`, { method: "DELETE" });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const card = document.querySelector(`[data-watch-later-video-id="${videoId}"]`);
-            if (card) card.remove();
-            if (grid && !grid.querySelector("[data-watch-later-video-id]")) {
-              const message = document.createElement("p");
-              message.className = "no-videos";
-              message.id = "watch-later-empty-message";
-              message.textContent = "まだ後で見る動画がありません。";
-              grid.replaceWith(message);
-            }
-          } catch (err) {
-            button.disabled = false;
-            alert("後で見る解除に失敗しました。時間をおいて再度お試しください。");
-          }
-        });
-      });
-    })();
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
-    (function initFavoriteRemoval() {
-      const grid = document.getElementById("favorites-grid");
-      const buttons = document.querySelectorAll("[data-favorite-remove]");
-      buttons.forEach(function (button) {
-        button.addEventListener("click", async function (event) {
-          event.preventDefault();
-          event.stopPropagation();
-          const videoId = button.getAttribute("data-favorite-remove");
-          if (!videoId) return;
-          button.disabled = true;
-          try {
-            const response = await fetch(`/api/videos/${videoId}/favorite`, { method: "DELETE" });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const card = document.querySelector(`[data-favorite-video-id="${videoId}"]`);
-            if (card) card.remove();
-            if (grid && !grid.querySelector("[data-favorite-video-id]")) {
-              const message = document.createElement("p");
-              message.className = "no-videos";
-              message.id = "favorites-empty-message";
-              message.textContent = "まだお気に入りがありません。";
-              grid.replaceWith(message);
-            }
-          } catch (err) {
-            button.disabled = false;
-            alert("お気に入り解除に失敗しました。時間をおいて再度お試しください。");
-          }
-        });
-      });
-    })();
-  </script>
+{% if current_user and recent_history %}
+<section class="mb-4" id="recent">
+  <h2 class="section-title mb-3">最近見た動画🕒</h2>
+  <div class="shelf-row">{% for video in recent_history %}{{ video_card(video) }}{% endfor %}</div>
+</section>
+{% endif %}
+
+{% if current_user %}
+<section class="mb-4" id="watch-later">
+  <h2 class="section-title mb-3">後で見る📌</h2>
+  {% if watch_later_videos %}
+  <div class="shelf-row" id="watch-later-grid">
+    {% for video in watch_later_videos %}
+    <div class="card video-card bg-body-tertiary rounded overflow-hidden" data-watch-later-video-id="{{ video.id }}">
+      <a class="text-decoration-none" href="/player/{{ video.id }}">
+        <div class="ratio ratio-16x9">{% if video.thumbnail_url %}<img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" class="w-100 h-100 object-fit-cover" loading="lazy" />{% else %}<div class="d-flex align-items-center justify-content-center text-secondary">▶</div>{% endif %}</div>
+      </a>
+      <div class="card-body p-2 d-flex justify-content-between align-items-start gap-2">
+        <h3 class="card-title fs-6 mb-0">{{ video.title }}</h3>
+        <button type="button" class="btn btn-sm btn-outline-warning watch-later-remove-btn" data-watch-later-remove="{{ video.id }}" aria-label="後で見る解除">📌</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-secondary" id="watch-later-empty-message">まだ後で見る動画がありません。</p>
   {% endif %}
-</body>
-</html>
+</section>
+
+<section class="mb-4" id="favorites">
+  <h2 class="section-title mb-3">お気に入り<span class="text-warning">★</span></h2>
+  {% if favorite_videos %}
+  <div class="shelf-row" id="favorites-grid">
+    {% for video in favorite_videos %}
+    <div class="card video-card bg-body-tertiary rounded overflow-hidden" data-favorite-video-id="{{ video.id }}">
+      <a class="text-decoration-none" href="/player/{{ video.id }}">
+        <div class="ratio ratio-16x9">{% if video.thumbnail_url %}<img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" class="w-100 h-100 object-fit-cover" loading="lazy" />{% else %}<div class="d-flex align-items-center justify-content-center text-secondary">▶</div>{% endif %}</div>
+      </a>
+      <div class="card-body p-2 d-flex justify-content-between align-items-start gap-2">
+        <h3 class="card-title fs-6 mb-0">{{ video.title }}</h3>
+        <button type="button" class="btn btn-sm btn-outline-warning favorite-remove-btn" data-favorite-remove="{{ video.id }}" aria-label="お気に入り解除">★</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-secondary" id="favorites-empty-message">まだお気に入りがありません。</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="mb-4" id="all">
+  <h2 class="section-title mb-3">すべての動画</h2>
+  {% if videos %}
+  <div class="shelf-row">{% for video in videos %}{{ video_card(video) }}{% endfor %}</div>
+  {% else %}
+  <div class="alert alert-secondary mb-0">{% if current_user %}まだ視聴できる動画がありません。{% else %}公開動画がありません。<a href="/login">ログイン</a>するとさらに多くの動画を視聴できる場合があります。{% endif %}</div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+{% if current_user %}
+<script>
+(function initWatchLaterRemoval() {
+  const grid = document.getElementById("watch-later-grid");
+  const buttons = document.querySelectorAll("[data-watch-later-remove]");
+  buttons.forEach(function (button) {
+    button.addEventListener("click", async function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const videoId = button.getAttribute("data-watch-later-remove");
+      if (!videoId) return;
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/videos/${videoId}/watch_later`, { method: "DELETE" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const card = document.querySelector(`[data-watch-later-video-id="${videoId}"]`);
+        if (card) card.remove();
+        if (grid && !grid.querySelector("[data-watch-later-video-id]")) {
+          const message = document.createElement("p");
+          message.className = "text-secondary";
+          message.id = "watch-later-empty-message";
+          message.textContent = "まだ後で見る動画がありません。";
+          grid.replaceWith(message);
+        }
+      } catch (err) {
+        button.disabled = false;
+        alert("後で見る解除に失敗しました。時間をおいて再度お試しください。");
+      }
+    });
+  });
+})();
+
+(function initFavoriteRemoval() {
+  const grid = document.getElementById("favorites-grid");
+  const buttons = document.querySelectorAll("[data-favorite-remove]");
+  buttons.forEach(function (button) {
+    button.addEventListener("click", async function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const videoId = button.getAttribute("data-favorite-remove");
+      if (!videoId) return;
+      button.disabled = true;
+      try {
+        const response = await fetch(`/api/videos/${videoId}/favorite`, { method: "DELETE" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const card = document.querySelector(`[data-favorite-video-id="${videoId}"]`);
+        if (card) card.remove();
+        if (grid && !grid.querySelector("[data-favorite-video-id]")) {
+          const message = document.createElement("p");
+          message.className = "text-secondary";
+          message.id = "favorites-empty-message";
+          message.textContent = "まだお気に入りがありません。";
+          grid.replaceWith(message);
+        }
+      } catch (err) {
+        button.disabled = false;
+        alert("お気に入り解除に失敗しました。時間をおいて再度お試しください。");
+      }
+    });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

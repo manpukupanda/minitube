@@ -1,338 +1,111 @@
-<!DOCTYPE html>
-<!--
-  profile.html - プロフィール編集ページ
+{% extends "base.html" %}
+{% block title %}プロフィール - minitube{% endblock %}
 
-  ログインユーザが表示名・アイコン・パスワードを編集できる。
--->
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>プロフィール - minitube</title>
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-8 col-lg-6">
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f0f0f;
-      color: #e0e0e0;
-      min-height: 100vh;
-    }
-
-    header {
-      background: #1a1a1a;
-      border-bottom: 1px solid #333;
-      padding: 14px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    header h1 {
-      font-size: 1.4rem;
-      color: #ff4444;
-    }
-
-    header nav a {
-      color: #aaa;
-      text-decoration: none;
-      font-size: 0.9rem;
-      margin-left: 20px;
-      transition: color 0.2s;
-    }
-
-    header nav a:hover {
-      color: #fff;
-    }
-
-    main {
-      max-width: 640px;
-      margin: 48px auto;
-      padding: 0 24px;
-    }
-
-    .profile-card {
-      background: #1a1a1a;
-      border: 1px solid #333;
-      border-radius: 8px;
-      padding: 36px;
-      margin-bottom: 24px;
-    }
-
-    .profile-card h2 {
-      font-size: 1.3rem;
-      margin-bottom: 28px;
-      color: #fff;
-    }
-
-    .info-row {
-      display: flex;
-      align-items: flex-start;
-      margin-bottom: 20px;
-      gap: 16px;
-    }
-
-    .info-label {
-      font-size: 0.85rem;
-      color: #888;
-      min-width: 120px;
-      padding-top: 2px;
-    }
-
-    .info-value {
-      font-size: 0.95rem;
-      color: #e0e0e0;
-    }
-
-    .role-badge {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-size: 0.8rem;
-      font-weight: bold;
-      margin-right: 6px;
-      margin-bottom: 4px;
-    }
-
-    .role-admin {
-      background: rgba(255, 68, 68, 0.2);
-      color: #ff6666;
-      border: 1px solid #ff4444;
-    }
-
-    .role-uploader {
-      background: rgba(68, 153, 255, 0.2);
-      color: #66aaff;
-      border: 1px solid #4499ff;
-    }
-
-    .role-viewer {
-      background: rgba(68, 204, 68, 0.2);
-      color: #66dd66;
-      border: 1px solid #44cc44;
-    }
-
-    .icon-circle {
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      object-fit: cover;
-      border: 2px solid #444;
-      background: #333;
-    }
-
-    .icon-placeholder {
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      background: #333;
-      border: 2px solid #444;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 2rem;
-      color: #666;
-    }
-
-    form .form-group {
-      margin-bottom: 18px;
-    }
-
-    form label {
-      display: block;
-      font-size: 0.85rem;
-      color: #888;
-      margin-bottom: 6px;
-    }
-
-    form input[type="text"],
-    form input[type="password"],
-    form input[type="file"] {
-      width: 100%;
-      background: #252525;
-      border: 1px solid #444;
-      border-radius: 4px;
-      padding: 9px 12px;
-      color: #e0e0e0;
-      font-size: 0.95rem;
-    }
-
-    form input[type="file"] {
-      padding: 6px 8px;
-    }
-
-    form input:focus {
-      outline: none;
-      border-color: #ff4444;
-    }
-
-    .btn {
-      background: #ff4444;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      padding: 10px 24px;
-      font-size: 0.95rem;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .btn:hover {
-      background: #cc2222;
-    }
-
-    .alert {
-      padding: 10px 16px;
-      border-radius: 4px;
-      margin-bottom: 20px;
-      font-size: 0.9rem;
-    }
-
-    .alert-success {
-      background: rgba(68, 204, 68, 0.15);
-      border: 1px solid #44cc44;
-      color: #66dd66;
-    }
-
-    .alert-error {
-      background: rgba(255, 68, 68, 0.15);
-      border: 1px solid #ff4444;
-      color: #ff6666;
-    }
-
-    hr.section-divider {
-      border: none;
-      border-top: 1px solid #333;
-      margin: 28px 0;
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>▶ minitube</h1>
-    <nav>
-      <a href="/home">ホーム</a>
-      <a href="/categories">カテゴリ</a>
-      {% if is_admin or is_uploader %}
-      <a href="/videos">動画一覧</a>
-      {% endif %}
-      {% if is_uploader or is_admin %}
-      <a href="/upload">アップロード</a>
-      {% endif %}
-      {% if is_admin %}
-      <a href="/admin/users">ユーザ管理</a>
-      {% endif %}
-      <a href="/notifications">🔔通知{% if unread_notification_count > 0 %} ({{ unread_notification_count }}){% endif %}</a>
-      <a href="/logout">ログアウト</a>
-    </nav>
-  </header>
-
-  <main>
-    <!-- 通知メッセージ -->
+    <!-- フラッシュメッセージ -->
     {% if request.query_params.get('success') == 'profile_updated' %}
     <div class="alert alert-success">プロフィールを更新しました。</div>
     {% elif request.query_params.get('success') == 'password_changed' %}
     <div class="alert alert-success">パスワードを変更しました。</div>
     {% elif request.query_params.get('error') == 'display_name_too_long' %}
-    <div class="alert alert-error">表示名は 50 文字以内で入力してください。</div>
+    <div class="alert alert-danger">表示名は 50 文字以内で入力してください。</div>
     {% elif request.query_params.get('error') == 'invalid_icon_type' %}
-    <div class="alert alert-error">アイコンは PNG または JPEG 形式でアップロードしてください。</div>
+    <div class="alert alert-danger">アイコンは PNG または JPEG 形式でアップロードしてください。</div>
     {% elif request.query_params.get('error') == 'icon_too_large' %}
-    <div class="alert alert-error">アイコンのファイルサイズは 1MB 以内にしてください。</div>
+    <div class="alert alert-danger">アイコンのファイルサイズは 1MB 以内にしてください。</div>
     {% elif request.query_params.get('error') == 'icon_upload_failed' %}
-    <div class="alert alert-error">アイコンのアップロードに失敗しました。</div>
+    <div class="alert alert-danger">アイコンのアップロードに失敗しました。</div>
     {% elif request.query_params.get('error') == 'wrong_current_password' %}
-    <div class="alert alert-error">現在のパスワードが正しくありません。</div>
+    <div class="alert alert-danger">現在のパスワードが正しくありません。</div>
     {% elif request.query_params.get('error') == 'password_mismatch' %}
-    <div class="alert alert-error">新しいパスワードと確認用パスワードが一致しません。</div>
+    <div class="alert alert-danger">新しいパスワードと確認用パスワードが一致しません。</div>
     {% elif request.query_params.get('error') == 'password_too_short' %}
-    <div class="alert alert-error">パスワードは 8 文字以上で設定してください。</div>
+    <div class="alert alert-danger">パスワードは 8 文字以上で設定してください。</div>
     {% elif request.query_params.get('error') %}
-    <div class="alert alert-error">エラーが発生しました。</div>
+    <div class="alert alert-danger">エラーが発生しました。</div>
     {% endif %}
 
     <!-- アカウント情報 -->
-    <div class="profile-card">
-      <h2>アカウント情報</h2>
+    <div class="card bg-body-tertiary mb-3">
+      <div class="card-body">
+        <h1 class="h5 card-title mb-4">アカウント情報</h1>
 
-      <div class="info-row">
-        <span class="info-label">アイコン</span>
-        <span class="info-value">
+        <div class="d-flex align-items-center gap-3 mb-3">
           {% if icon_url %}
-          <img src="{{ icon_url }}" alt="アイコン" class="icon-circle" />
+          <img src="{{ icon_url }}" alt="アイコン" class="rounded-circle" style="width: 72px; height: 72px; object-fit: cover;" />
           {% else %}
-          <div class="icon-placeholder">👤</div>
+          <div class="rounded-circle bg-secondary d-flex align-items-center justify-content-center" style="width: 72px; height: 72px; font-size: 2rem;">👤</div>
           {% endif %}
-        </span>
-      </div>
+          <div>
+            <div class="fw-semibold">{{ display_name if display_name else '（表示名未設定）' }}</div>
+            <div class="text-secondary small">{{ email }}</div>
+          </div>
+        </div>
 
-      <div class="info-row">
-        <span class="info-label">表示名</span>
-        <span class="info-value">{{ display_name if display_name else '（未設定）' }}</span>
-      </div>
-
-      <div class="info-row">
-        <span class="info-label">メールアドレス</span>
-        <span class="info-value">{{ email }}</span>
-      </div>
-
-      <div class="info-row">
-        <span class="info-label">ロール</span>
-        <span class="info-value">
+        <div>
+          <span class="text-secondary small me-2">ロール:</span>
           {% for role in roles %}
-            <span class="role-badge role-{{ role }}">{{ role }}</span>
+            <span class="badge {% if role == 'admin' %}text-bg-danger{% elif role == 'uploader' %}text-bg-primary{% else %}text-bg-success{% endif %} me-1">{{ role }}</span>
           {% endfor %}
           {% if not roles %}
-            <span style="color: #555;">なし</span>
+            <span class="text-secondary small">なし</span>
           {% endif %}
-        </span>
+        </div>
       </div>
     </div>
 
-    <!-- 表示名・アイコン編集フォーム -->
-    <div class="profile-card">
-      <h2>プロフィール編集</h2>
-      <form method="post" action="/api/profile/update" enctype="multipart/form-data">
-        <div class="form-group">
-          <label for="display_name">表示名（最大 50 文字）</label>
-          <input type="text" id="display_name" name="display_name"
-                 value="{{ display_name }}" maxlength="50"
-                 placeholder="表示名を入力（空欄で未設定）" />
-        </div>
-        <div class="form-group">
-          <label for="icon">アイコン画像（PNG / JPEG、最大 1MB）</label>
-          <input type="file" id="icon" name="icon" accept="image/png,image/jpeg" />
-        </div>
-        <button type="submit" class="btn">保存</button>
-      </form>
+    <!-- プロフィール編集フォーム -->
+    <div class="card bg-body-tertiary mb-3">
+      <div class="card-body">
+        <h2 class="h5 card-title mb-3">プロフィール編集</h2>
+        <form method="post" action="/api/profile/update" enctype="multipart/form-data" class="d-grid gap-3">
+          <div>
+            <label for="display_name" class="form-label">表示名（最大 50 文字）</label>
+            <input type="text" id="display_name" name="display_name" class="form-control"
+                   value="{{ display_name }}" maxlength="50"
+                   placeholder="表示名を入力（空欄で未設定）" />
+          </div>
+          <div>
+            <label for="icon" class="form-label">アイコン画像（PNG / JPEG、最大 1MB）</label>
+            <input type="file" id="icon" name="icon" class="form-control" accept="image/png,image/jpeg" />
+          </div>
+          <div>
+            <button type="submit" class="btn btn-danger">保存</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <!-- パスワード変更フォーム -->
-    <div class="profile-card">
-      <h2>パスワード変更</h2>
-      <form method="post" action="/api/profile/password">
-        <div class="form-group">
-          <label for="current_password">現在のパスワード</label>
-          <input type="password" id="current_password" name="current_password"
-                 placeholder="現在のパスワード" required />
-        </div>
-        <div class="form-group">
-          <label for="new_password">新しいパスワード（8 文字以上）</label>
-          <input type="password" id="new_password" name="new_password"
-                 placeholder="新しいパスワード" minlength="8" required />
-        </div>
-        <div class="form-group">
-          <label for="confirm_password">新しいパスワード（確認）</label>
-          <input type="password" id="confirm_password" name="confirm_password"
-                 placeholder="新しいパスワード（確認）" minlength="8" required />
-        </div>
-        <button type="submit" class="btn">パスワードを変更</button>
-      </form>
+    <div class="card bg-body-tertiary mb-3">
+      <div class="card-body">
+        <h2 class="h5 card-title mb-3">パスワード変更</h2>
+        <form method="post" action="/api/profile/password" class="d-grid gap-3">
+          <div>
+            <label for="current_password" class="form-label">現在のパスワード</label>
+            <input type="password" id="current_password" name="current_password" class="form-control"
+                   placeholder="現在のパスワード" required />
+          </div>
+          <div>
+            <label for="new_password" class="form-label">新しいパスワード（8 文字以上）</label>
+            <input type="password" id="new_password" name="new_password" class="form-control"
+                   placeholder="新しいパスワード" minlength="8" required />
+          </div>
+          <div>
+            <label for="confirm_password" class="form-label">新しいパスワード（確認）</label>
+            <input type="password" id="confirm_password" name="confirm_password" class="form-control"
+                   placeholder="新しいパスワード（確認）" minlength="8" required />
+          </div>
+          <div>
+            <button type="submit" class="btn btn-danger">パスワードを変更</button>
+          </div>
+        </form>
+      </div>
     </div>
-  </main>
-</body>
-</html>
+
+  </div>
+</div>
+{% endblock %}

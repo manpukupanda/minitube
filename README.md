@@ -55,7 +55,7 @@ docker compose up --build
 - ホーム画面: `http://localhost/home`（視聴者向け動画一覧。未ログインでも公開動画を閲覧可）
 - カテゴリ一覧: `http://localhost/categories`（未ログインでも閲覧可）
 - 検索結果: `http://localhost/search?q=キーワード`（未ログインでも公開動画を閲覧可）
-- 動画管理一覧: `http://localhost/videos`（テーブル形式。管理・編集用）
+- 動画管理: `http://localhost/videos`（テーブル形式。管理・編集用）
 - ログイン: `http://localhost/login`（初期管理者: `admin@example.com`）
 - アップロード: `http://localhost/upload`（uploader または admin ロール必須）
 - MinIO コンソール: `http://localhost:9001`

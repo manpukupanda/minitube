@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ja" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}minitube{% endblock %}</title>
+  <link rel="stylesheet" href="/static/bootstrap/bootstrap.min.css" />
+  <link rel="stylesheet" href="/static/css/app.css" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="navbar navbar-expand-lg fixed-top bg-body-tertiary border-bottom app-header">
+    <div class="container-fluid">
+      <button class="btn btn-outline-secondary d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileNav" aria-controls="mobileNav">☰</button>
+      <a class="navbar-brand fw-semibold app-header-logo" href="/home">▶ minitube</a>
+      <form class="d-flex flex-grow-1 mx-lg-4" action="/search" method="get" role="search">
+        <input class="form-control form-control-sm me-2" type="search" name="q" placeholder="動画を検索" value="{{ query or search_query or '' }}" />
+        <button class="btn btn-sm btn-outline-light" type="submit">検索</button>
+      </form>
+      <div class="d-flex gap-2 align-items-center">
+        {% if current_user %}
+        <a class="btn btn-sm btn-outline-secondary" href="/notifications">🔔{% if unread_notification_count > 0 %}<span class="ms-1 badge text-bg-danger">{{ unread_notification_count }}</span>{% endif %}</a>
+        <a class="btn btn-sm btn-outline-secondary" href="/profile">プロフィール</a>
+        <a class="btn btn-sm btn-danger" href="/logout">ログアウト</a>
+        {% else %}
+        <a class="btn btn-sm btn-outline-secondary" href="/login">ログイン</a>
+        <a class="btn btn-sm btn-danger" href="/register">新規登録</a>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  <aside class="app-sidebar bg-body-tertiary border-end p-2">
+    <div class="list-group list-group-flush">
+      <a class="list-group-item list-group-item-action" href="/home">ホーム</a>
+      <a class="list-group-item list-group-item-action" href="/categories">カテゴリ</a>
+      {% if current_user %}
+      <a class="list-group-item list-group-item-action" href="/home#recent">最近見た動画🕒</a>
+      <a class="list-group-item list-group-item-action" href="/home#watch-later">後で見る📌</a>
+      <a class="list-group-item list-group-item-action" href="/home#favorites">お気に入り<span class="text-warning">★</span></a>
+      <a class="list-group-item list-group-item-action" href="/home#all">すべての動画</a>
+      {% endif %}
+      {% if is_admin or is_uploader %}
+      <div class="list-group-item list-group-item-secondary fw-semibold">
+        管理
+      </div>
+      <a class="list-group-item list-group-item-action" href="/videos">動画管理</a>
+      <a class="list-group-item list-group-item-action" href="/upload">アップロード</a>
+      {% endif %}
+      {% if is_admin %}
+      <a class="list-group-item list-group-item-action" href="/admin/settings">設定（admin）</a>
+      <a class="list-group-item list-group-item-action" href="/admin/users">ユーザ管理</a>
+      {% endif %}
+    </div>
+  </aside>
+
+  <div class="offcanvas offcanvas-start" tabindex="-1" id="mobileNav" aria-labelledby="mobileNavLabel">
+    <div class="offcanvas-header">
+      <h5 class="offcanvas-title" id="mobileNavLabel">メニュー</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+      <div class="list-group list-group-flush">
+        <a class="list-group-item list-group-item-action" href="/home">ホーム</a>
+        <a class="list-group-item list-group-item-action" href="/categories">カテゴリ</a>
+        {% if is_admin or is_uploader %}<a class="list-group-item list-group-item-action" href="/videos">動画管理</a>{% endif %}
+        {% if is_uploader or is_admin %}<a class="list-group-item list-group-item-action" href="/upload">アップロード</a>{% endif %}
+        {% if is_admin %}<a class="list-group-item list-group-item-action" href="/admin/settings">設定（admin）</a>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <main class="app-main app-content pb-4">
+    <div class="container-fluid px-3 px-lg-4">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <script src="/static/bootstrap/bootstrap.bundle.min.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
