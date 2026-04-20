@@ -2,7 +2,7 @@
 {% block title %}{{ category.normalized_name }} - minitube{% endblock %}
 
 {% macro grid_card(video) %}
-<div class="card video-list-card bg-body-tertiary h-100">
+<div class="card video-list-card bg-body-tertiary h-100 rounded overflow-hidden">
   <a class="text-decoration-none" href="/player/{{ video.id }}">
     <div class="ratio ratio-16x9">
       {% if video.thumbnail_url %}

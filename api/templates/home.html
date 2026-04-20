@@ -2,7 +2,7 @@
 {% block title %}ホーム - minitube{% endblock %}
 
 {% macro video_card(video, href='/player/') %}
-<div class="card video-card bg-body-tertiary">
+<div class="card video-card bg-body-tertiary rounded overflow-hidden">
   <a class="text-decoration-none" href="{{ href }}{{ video.id }}">
     <div class="ratio ratio-16x9">
       {% if video.thumbnail_url %}
@@ -45,7 +45,7 @@
   <h2 class="section-title mb-3">続きから再生</h2>
   <div class="shelf-row">
     {% for video in resume_history %}
-    <div class="card video-card bg-body-tertiary">
+    <div class="card video-card bg-body-tertiary rounded overflow-hidden">
       <a class="text-decoration-none" href="/player/{{ video.id }}?t={{ video.last_position }}">
         <div class="ratio ratio-16x9">
           {% if video.thumbnail_url %}<img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" class="w-100 h-100 object-fit-cover" loading="lazy" />{% else %}<div class="d-flex align-items-center justify-content-center text-secondary">▶</div>{% endif %}
@@ -77,7 +77,7 @@
   {% if watch_later_videos %}
   <div class="shelf-row" id="watch-later-grid">
     {% for video in watch_later_videos %}
-    <div class="card video-card bg-body-tertiary" data-watch-later-video-id="{{ video.id }}">
+    <div class="card video-card bg-body-tertiary rounded overflow-hidden" data-watch-later-video-id="{{ video.id }}">
       <a class="text-decoration-none" href="/player/{{ video.id }}">
         <div class="ratio ratio-16x9">{% if video.thumbnail_url %}<img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" class="w-100 h-100 object-fit-cover" loading="lazy" />{% else %}<div class="d-flex align-items-center justify-content-center text-secondary">▶</div>{% endif %}</div>
       </a>
@@ -98,7 +98,7 @@
   {% if favorite_videos %}
   <div class="shelf-row" id="favorites-grid">
     {% for video in favorite_videos %}
-    <div class="card video-card bg-body-tertiary" data-favorite-video-id="{{ video.id }}">
+    <div class="card video-card bg-body-tertiary rounded overflow-hidden" data-favorite-video-id="{{ video.id }}">
       <a class="text-decoration-none" href="/player/{{ video.id }}">
         <div class="ratio ratio-16x9">{% if video.thumbnail_url %}<img src="{{ video.thumbnail_url }}" alt="{{ video.title }}" class="w-100 h-100 object-fit-cover" loading="lazy" />{% else %}<div class="d-flex align-items-center justify-content-center text-secondary">▶</div>{% endif %}</div>
       </a>
