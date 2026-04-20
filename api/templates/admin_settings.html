@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}管理設定 - minitube{% endblock %}
+
+{% block content %}
+<h1 class="h4 mb-3">管理設定</h1>
+{% set error = request.query_params.get("error", "") %}
+{% if error == "empty_name" %}<div class="alert alert-danger">名前を入力してください。</div>{% endif %}
+{% if error == "duplicate_name" %}<div class="alert alert-danger">同じ名前がすでに存在します。</div>{% endif %}
+{% if error == "has_videos" %}<div class="alert alert-danger">動画が紐づいているため削除できません。</div>{% endif %}
+<p id="save-notice" class="alert alert-success" style="display:none;">保存しました。</p>
+
+<ul class="nav nav-tabs mb-3" id="adminTabs" role="tablist">
+  <li class="nav-item" role="presentation"><button class="nav-link active" id="site-tab" data-bs-toggle="tab" data-bs-target="#site-pane" type="button" role="tab">サイト設定</button></li>
+  <li class="nav-item" role="presentation"><button class="nav-link" id="category-tab" data-bs-toggle="tab" data-bs-target="#category-pane" type="button" role="tab">カテゴリ</button></li>
+  <li class="nav-item" role="presentation"><button class="nav-link" id="tag-tab" data-bs-toggle="tab" data-bs-target="#tag-pane" type="button" role="tab">タグ</button></li>
+</ul>
+
+<div class="tab-content">
+  <section class="tab-pane fade show active" id="site-pane" role="tabpanel">
+    <form id="site-settings-form" class="d-grid gap-3">
+      <div class="card bg-body-tertiary"><div class="card-body"><h2 class="h6 mb-2">お知らせ</h2><textarea class="form-control" name="top_notice" id="top-notice" rows="4">{{ top_notice }}</textarea></div></div>
+      <div class="card bg-body-tertiary"><div class="card-body"><h2 class="h6 mb-2">ヒーローイメージ</h2>
+        <input type="hidden" name="hero_image_url" id="hero-image-url" value="{{ hero_image_url }}" />
+        <input type="file" class="form-control" id="hero-image" name="hero_image" accept="image/png,image/jpeg,image/webp" />
+        <div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="clear-hero-image" /><label class="form-check-label" for="clear-hero-image">画像をクリア</label></div>
+        {% if hero_image_url %}<img src="{{ hero_image_url }}" alt="hero preview" class="img-fluid rounded border mt-2" id="hero-preview" />{% else %}<img src="" alt="hero preview" class="img-fluid rounded border mt-2" id="hero-preview" style="display:none;" />{% endif %}
+      </div></div>
+      <div class="card bg-body-tertiary"><div class="card-body"><h2 class="h6 mb-2">おすすめ動画</h2>
+        <div class="input-group mb-2"><select id="video-select" class="form-select"><option value="">動画を選択してください</option>{% for video in video_options %}<option value="{{ video.id }}">{{ video.title }} ({{ video.id }})</option>{% endfor %}</select><button type="button" class="btn btn-outline-light" id="add-video-btn">追加</button></div>
+        <ul id="recommended-list" class="list-group">{% for video in recommended_videos %}<li class="list-group-item d-flex justify-content-between align-items-center" draggable="true" data-video-id="{{ video.id }}"><span>{{ video.title }} ({{ video.id }})</span><div class="d-flex gap-1"><button type="button" class="btn btn-sm btn-outline-secondary move-up-btn">↑</button><button type="button" class="btn btn-sm btn-outline-secondary move-down-btn">↓</button><button type="button" class="btn btn-sm btn-outline-danger remove-btn">削除</button></div></li>{% endfor %}</ul>
+        <input type="hidden" name="recommended_video_ids" id="recommended-video-ids" value="[]" />
+        <p class="text-danger small mt-2 mb-0" id="form-error" style="display:none;"></p>
+      </div></div>
+      <div><button type="submit" class="btn btn-danger">保存</button></div>
+    </form>
+  </section>
+
+  <section class="tab-pane fade" id="category-pane" role="tabpanel">
+    <div class="card bg-body-tertiary mb-3"><div class="card-body"><h2 class="h6 mb-2">カテゴリ追加</h2><form action="/api/admin/categories" method="post" class="input-group"><input type="text" name="name" class="form-control" placeholder="カテゴリ名" required maxlength="100" /><button type="submit" class="btn btn-danger">追加</button></form></div></div>
+    <div class="card bg-body-tertiary"><div class="card-body"><h2 class="h6 mb-2">カテゴリ一覧</h2>
+      {% if categories %}
+      <div class="table-responsive"><table class="table table-dark table-striped align-middle"><thead><tr><th>カテゴリ名</th><th>動画数</th><th>操作</th></tr></thead><tbody>{% for cat in categories %}<tr><td><form action="/api/admin/categories/{{ cat.id }}/update" method="post" class="d-flex gap-2"><input type="text" name="name" class="form-control form-control-sm" value="{{ cat.name }}" required maxlength="100" /><button type="submit" class="btn btn-sm btn-outline-light">変更</button></form></td><td>{{ cat.video_count }} 本</td><td><form action="/api/admin/categories/{{ cat.id }}/delete" method="post"><button type="submit" class="btn btn-sm btn-outline-danger" {% if cat.video_count > 0 %}disabled{% endif %}>削除</button></form></td></tr>{% endfor %}</tbody></table></div>
+      {% else %}<p class="text-secondary mb-0">カテゴリがまだ登録されていません。</p>{% endif %}
+    </div></div>
+  </section>
+
+  <section class="tab-pane fade" id="tag-pane" role="tabpanel">
+    <div class="card bg-body-tertiary mb-3"><div class="card-body"><h2 class="h6 mb-2">タグ追加</h2><form action="/api/admin/tags" method="post" class="input-group"><input type="text" name="name" class="form-control" placeholder="タグ名" required maxlength="100" /><button type="submit" class="btn btn-danger">追加</button></form></div></div>
+    <div class="card bg-body-tertiary"><div class="card-body"><h2 class="h6 mb-2">タグ一覧</h2>
+      {% if tags %}
+      <div class="table-responsive"><table class="table table-dark table-striped align-middle"><thead><tr><th>タグ名</th><th>slug</th><th>動画数</th><th>操作</th></tr></thead><tbody>{% for tag in tags %}<tr><td><form action="/api/admin/tags/{{ tag.id }}/update" method="post" class="d-flex gap-2"><input type="text" name="name" class="form-control form-control-sm" value="{{ tag.name }}" required maxlength="100" /><button type="submit" class="btn btn-sm btn-outline-light">変更</button></form></td><td>{{ tag.slug }}</td><td>{{ tag.video_count }} 本</td><td><form action="/api/admin/tags/{{ tag.id }}/delete" method="post"><button type="submit" class="btn btn-sm btn-outline-danger" {% if tag.video_count > 0 %}disabled{% endif %}>削除</button></form></td></tr>{% endfor %}</tbody></table></div>
+      {% else %}<p class="text-secondary mb-0">タグがまだ登録されていません。</p>{% endif %}
+    </div></div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const form = document.getElementById("site-settings-form");
+  if (!form) return;
+  const addBtn = document.getElementById("add-video-btn");
+  const select = document.getElementById("video-select");
+  const list = document.getElementById("recommended-list");
+  const idsInput = document.getElementById("recommended-video-ids");
+  const errorEl = document.getElementById("form-error");
+  const saveNotice = document.getElementById("save-notice");
+  const heroInput = document.getElementById("hero-image");
+  const heroPreview = document.getElementById("hero-preview");
+  const heroUrlInput = document.getElementById("hero-image-url");
+  const clearHeroCheckbox = document.getElementById("clear-hero-image");
+
+  function updateHiddenIds() {
+    const ids = Array.from(list.querySelectorAll("[data-video-id]")).map((item) => item.dataset.videoId);
+    idsInput.value = JSON.stringify(ids);
+  }
+
+  function createItem(id, label) {
+    const li = document.createElement("li");
+    li.className = "list-group-item d-flex justify-content-between align-items-center";
+    li.draggable = true;
+    li.dataset.videoId = id;
+    li.innerHTML = `<span>${label}</span><div class="d-flex gap-1"><button type="button" class="btn btn-sm btn-outline-secondary move-up-btn">↑</button><button type="button" class="btn btn-sm btn-outline-secondary move-down-btn">↓</button><button type="button" class="btn btn-sm btn-outline-danger remove-btn">削除</button></div>`;
+    return li;
+  }
+
+  function bindItemButtons(item) {
+    item.querySelector(".remove-btn").addEventListener("click", function () { item.remove(); updateHiddenIds(); });
+    item.querySelector(".move-up-btn").addEventListener("click", function () { const prev = item.previousElementSibling; if (prev) list.insertBefore(item, prev); updateHiddenIds(); });
+    item.querySelector(".move-down-btn").addEventListener("click", function () { const next = item.nextElementSibling; if (next) list.insertBefore(next, item); updateHiddenIds(); });
+    item.addEventListener("dragstart", function () { item.classList.add("dragging"); });
+    item.addEventListener("dragend", function () { item.classList.remove("dragging"); updateHiddenIds(); });
+  }
+
+  list.querySelectorAll("[data-video-id]").forEach(bindItemButtons);
+  updateHiddenIds();
+
+  list.addEventListener("dragover", function (event) {
+    event.preventDefault();
+    const dragging = list.querySelector(".dragging");
+    if (!dragging) return;
+    const siblings = Array.from(list.querySelectorAll("[data-video-id]:not(.dragging)"));
+    const nextSibling = siblings.find((sibling) => event.clientY <= sibling.getBoundingClientRect().top + sibling.offsetHeight / 2);
+    if (nextSibling) list.insertBefore(dragging, nextSibling);
+    else list.appendChild(dragging);
+  });
+
+  addBtn.addEventListener("click", function () {
+    errorEl.style.display = "none";
+    if (!select.value) return;
+    if (list.querySelector(`[data-video-id="${select.value}"]`)) {
+      errorEl.textContent = "すでに追加済みの動画です。";
+      errorEl.style.display = "block";
+      return;
+    }
+    const option = select.options[select.selectedIndex];
+    const item = createItem(select.value, option.textContent);
+    bindItemButtons(item);
+    list.appendChild(item);
+    updateHiddenIds();
+  });
+
+  heroInput.addEventListener("change", function () {
+    const file = heroInput.files && heroInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      heroPreview.src = event.target.result;
+      heroPreview.style.display = "block";
+      clearHeroCheckbox.checked = false;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  clearHeroCheckbox.addEventListener("change", function () {
+    if (clearHeroCheckbox.checked) {
+      heroUrlInput.value = "";
+      heroInput.value = "";
+      heroPreview.style.display = "none";
+    }
+  });
+
+  form.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    errorEl.style.display = "none";
+    saveNotice.style.display = "none";
+    updateHiddenIds();
+    if (!clearHeroCheckbox.checked && !heroInput.files.length && heroPreview.src) {
+      heroUrlInput.value = heroPreview.getAttribute("src") || heroUrlInput.value;
+    }
+    const formData = new FormData(form);
+    try {
+      const response = await fetch("/api/admin/site_settings", { method: "POST", body: formData });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      const saved = body.site_settings || {};
+      heroUrlInput.value = saved.hero_image_url || "";
+      if (saved.hero_image_url) {
+        heroPreview.src = saved.hero_image_url;
+        heroPreview.style.display = "block";
+      } else {
+        heroPreview.style.display = "none";
+      }
+      clearHeroCheckbox.checked = false;
+      saveNotice.style.display = "block";
+    } catch (error) {
+      errorEl.textContent = `保存に失敗しました: ${error.message}`;
+      errorEl.style.display = "block";
+    }
+  });
+})();
+</script>
+{% endblock %}

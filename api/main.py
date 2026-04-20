@@ -704,7 +704,7 @@ def _format_search_videos(videos: list[Video], db: Session) -> list[dict]:
         ).all()
         for thumb in thumbs:
             thumb_map[thumb.video_id] = thumb.url
-    return [
+    payload = [
         {
             "id": video.id,
             "title": video.title,
@@ -714,6 +714,46 @@ def _format_search_videos(videos: list[Video], db: Session) -> list[dict]:
         }
         for video in videos
     ]
+    return _enrich_video_payloads(payload, db)
+
+
+def _enrich_video_payloads(videos_payload: list[dict], db: Session) -> list[dict]:
+    video_ids = [video.get("id") for video in videos_payload if video.get("id")]
+    if not video_ids:
+        return videos_payload
+
+    videos = db.query(Video).filter(Video.id.in_(video_ids)).all()
+    video_map = {video.id: video for video in videos}
+
+    category_ids = [video.category_id for video in videos if video.category_id]
+    category_name_map: dict[str, str] = {}
+    if category_ids:
+        categories = db.query(Category).filter(Category.id.in_(category_ids)).all()
+        category_name_map = {category.id: _normalize_category_name(category.name) for category in categories}
+
+    tags_by_video: dict[str, list[dict]] = {video_id: [] for video_id in video_ids}
+    tag_rows = (
+        db.query(VideoTag.video_id, Tag.name, Tag.slug)
+        .join(Tag, Tag.id == VideoTag.tag_id)
+        .filter(VideoTag.video_id.in_(video_ids))
+        .order_by(Tag.name.asc())
+        .all()
+    )
+    for video_id, tag_name, tag_slug in tag_rows:
+        tags_by_video.setdefault(video_id, []).append({"name": tag_name, "slug": tag_slug})
+
+    for item in videos_payload:
+        video_id = item.get("id")
+        db_video = video_map.get(video_id)
+        if not db_video:
+            item.setdefault("category_name", "未分類")
+            item.setdefault("tags", [])
+            item.setdefault("visibility", "public")
+            continue
+        item["category_name"] = category_name_map.get(db_video.category_id, "未分類")
+        item["tags"] = tags_by_video.get(video_id, [])
+        item["visibility"] = db_video.visibility
+    return videos_payload
 
 
 def _favorite_rows_to_response(rows: list[tuple[Favorite, Video]], user: dict, db: Session) -> list[dict]:
@@ -996,6 +1036,13 @@ async def home_page(request: Request, db: Session = Depends(get_db)):
             if h.last_position > 0:
                 resume_history.append(entry)
 
+    visible_videos = _enrich_video_payloads(visible_videos, db)
+    recommended_videos = _enrich_video_payloads(recommended_videos, db)
+    recent_history = _enrich_video_payloads(recent_history, db)
+    resume_history = _enrich_video_payloads(resume_history, db)
+    favorite_videos = _enrich_video_payloads(favorite_videos, db)
+    watch_later_videos = _enrich_video_payloads(watch_later_videos, db)
+
     return templates.TemplateResponse(
         request,
         "home.html",
@@ -1156,6 +1203,10 @@ async def category_videos_page(
     videos = _list_viewable_category_videos(category, current_user, db)
     thumb_map = _get_active_thumbnail_map([video.id for video in videos], db)
     breadcrumbs = _build_category_breadcrumbs(category.id, category.name, db)
+    videos_payload = _enrich_video_payloads([
+        {"id": video.id, "title": video.title, "thumbnail_url": thumb_map.get(video.id)}
+        for video in videos
+    ], db)
     return templates.TemplateResponse(
         request,
         "category_videos.html",
@@ -1166,10 +1217,7 @@ async def category_videos_page(
                 "normalized_name": _normalize_category_name(category.name),
             },
             "breadcrumbs": breadcrumbs,
-            "videos": [
-                {"id": video.id, "title": video.title, "thumbnail_url": thumb_map.get(video.id)}
-                for video in videos
-            ],
+            "videos": videos_payload,
             "current_user": current_user,
             "is_admin": current_user and "admin" in current_user["roles"],
             "is_uploader": current_user and "uploader" in current_user["roles"],
@@ -1192,12 +1240,7 @@ async def api_site_settings(db: Session = Depends(get_db)):
     return JSONResponse(_site_settings_response(settings))
 
 
-@app.get("/admin/site-settings", response_class=HTMLResponse)
-async def admin_site_settings_page(
-    request: Request,
-    admin: dict = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
+def _build_admin_settings_context(admin: dict, db: Session) -> dict:
     settings = db.query(SiteSetting).order_by(SiteSetting.id.asc()).first()
     public_settings = _site_settings_response(settings)
 
@@ -1215,18 +1258,60 @@ async def admin_site_settings_page(
             continue
         recommended_videos.append({"id": video.id, "title": video.title})
 
+    all_categories = db.query(Category).order_by(Category.created_at).all()
+    categories_info = []
+    for category in all_categories:
+        video_count = db.query(Video).filter(Video.category_id == category.id).count()
+        categories_info.append({
+            "id": category.id,
+            "name": category.name,
+            "video_count": video_count,
+        })
+
+    all_tags = db.query(Tag).order_by(Tag.name.asc()).all()
+    tags_info = []
+    for tag in all_tags:
+        video_count = db.query(VideoTag).filter(VideoTag.tag_id == tag.id).count()
+        tags_info.append({
+            "id": tag.id,
+            "name": tag.name,
+            "slug": tag.slug,
+            "video_count": video_count,
+        })
+
+    return {
+        "is_admin": True,
+        "top_notice": public_settings["top_notice"] or "",
+        "hero_image_url": public_settings["hero_image_url"] or "",
+        "recommended_videos": recommended_videos,
+        "video_options": [{"id": video.id, "title": video.title} for video in videos],
+        "categories": categories_info,
+        "tags": tags_info,
+        "unread_notification_count": get_unread_notification_count(admin["user_id"], db),
+    }
+
+
+@app.get("/admin/settings", response_class=HTMLResponse)
+async def admin_settings_page(
+    request: Request,
+    admin: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     return templates.TemplateResponse(
         request,
-        "admin_site_settings.html",
-        {
-            "is_admin": True,
-            "top_notice": public_settings["top_notice"] or "",
-            "hero_image_url": public_settings["hero_image_url"] or "",
-            "recommended_videos": recommended_videos,
-            "video_options": [{"id": video.id, "title": video.title} for video in videos],
-            "unread_notification_count": get_unread_notification_count(admin["user_id"], db),
-        },
+        "admin_settings.html",
+        _build_admin_settings_context(admin, db),
     )
+
+
+@app.get("/admin/site-settings", response_class=HTMLResponse)
+async def admin_site_settings_page(
+    request: Request,
+    admin: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _ = request, admin, db
+    return RedirectResponse(url="/admin/settings", status_code=303)
 
 
 @app.post("/api/admin/site_settings")
@@ -1897,12 +1982,34 @@ async def player_page(
         .order_by(Tag.name.asc())
         .all()
     )
+    category_name = "未分類"
+    if video.category_id:
+        category = db.query(Category).filter(Category.id == video.category_id).first()
+        if category:
+            category_name = _normalize_category_name(category.name)
+
+    related_query = db.query(Video).filter(Video.status == "ready", Video.id != video.id)
+    if video.category_id:
+        related_query = related_query.filter(Video.category_id == video.category_id)
+    related_video_rows = [v for v in related_query.order_by(Video.created_at.desc()).limit(12).all() if can_view_video(v, current_user, db)]
+    related_thumb_map = _get_active_thumbnail_map([v.id for v in related_video_rows], db)
+    related_videos = _enrich_video_payloads([
+        {
+            "id": related_video.id,
+            "title": related_video.title,
+            "thumbnail_url": related_thumb_map.get(related_video.id),
+        }
+        for related_video in related_video_rows
+    ], db)
+
     return templates.TemplateResponse(
         request,
         "player.html",
         {
             "video_id": video_id,
             "title": video.title,
+            "description": video.description or "",
+            "category_name": category_name,
             "visibility": video.visibility,
             "job_id": job_id,
             "job_status": job_status,
@@ -1912,6 +2019,7 @@ async def player_page(
             "tags": [{"id": tag.id, "name": tag.name, "slug": tag.slug} for tag in video_tags],
             "is_admin": current_user and "admin" in current_user["roles"],
             "is_uploader": current_user and "uploader" in current_user["roles"],
+            "related_videos": related_videos,
             "unread_notification_count": (
                 get_unread_notification_count(current_user["user_id"], db)
                 if current_user
@@ -2000,15 +2108,16 @@ async def tag_videos_page(
         ).all()
         for thumb in thumbs:
             thumb_map[thumb.video_id] = thumb.url
+    videos_payload = _enrich_video_payloads([
+        {"id": video.id, "title": video.title, "thumbnail_url": thumb_map.get(video.id)}
+        for video in filtered_videos
+    ], db)
     return templates.TemplateResponse(
         request,
         "tags.html",
         {
             "tag": {"id": tag.id, "name": tag.name, "slug": tag.slug},
-            "videos": [
-                {"id": video.id, "title": video.title, "thumbnail_url": thumb_map.get(video.id)}
-                for video in filtered_videos
-            ],
+            "videos": videos_payload,
             "current_user": current_user,
             "is_admin": current_user and "admin" in current_user["roles"],
             "is_uploader": current_user and "uploader" in current_user["roles"],
@@ -2156,25 +2265,8 @@ async def admin_tags_page(
     admin: dict = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    all_tags = db.query(Tag).order_by(Tag.name.asc()).all()
-    tags_info = []
-    for tag in all_tags:
-        video_count = db.query(VideoTag).filter(VideoTag.tag_id == tag.id).count()
-        tags_info.append({
-            "id": tag.id,
-            "name": tag.name,
-            "slug": tag.slug,
-            "video_count": video_count,
-        })
-    return templates.TemplateResponse(
-        request,
-        "admin_tags.html",
-        {
-            "tags": tags_info,
-            "is_admin": True,
-            "unread_notification_count": get_unread_notification_count(admin["user_id"], db),
-        },
-    )
+    _ = request, admin, db
+    return RedirectResponse(url="/admin/settings", status_code=303)
 
 
 @app.post("/api/admin/tags")
@@ -2305,25 +2397,8 @@ async def admin_categories_page(
     db: Session = Depends(get_db),
 ):
     """カテゴリ管理ページ（Admin のみ）。"""
-    all_categories = db.query(Category).order_by(Category.created_at).all()
-    categories_info = []
-    for cat in all_categories:
-        video_count = db.query(Video).filter(Video.category_id == cat.id).count()
-        categories_info.append({
-            "id": cat.id,
-            "name": cat.name,
-            "created_at": cat.created_at,
-            "video_count": video_count,
-        })
-    return templates.TemplateResponse(
-        request,
-        "admin_categories.html",
-        {
-            "categories": categories_info,
-            "is_admin": True,
-            "unread_notification_count": get_unread_notification_count(admin["user_id"], db),
-        },
-    )
+    _ = request, admin, db
+    return RedirectResponse(url="/admin/settings", status_code=303)
 
 
 @app.post("/api/admin/categories")
