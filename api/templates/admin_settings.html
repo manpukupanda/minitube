@@ -81,7 +81,33 @@
     li.className = "list-group-item d-flex justify-content-between align-items-center";
     li.draggable = true;
     li.dataset.videoId = id;
-    li.innerHTML = `<span>${label}</span><div class="d-flex gap-1"><button type="button" class="btn btn-sm btn-outline-secondary move-up-btn">↑</button><button type="button" class="btn btn-sm btn-outline-secondary move-down-btn">↓</button><button type="button" class="btn btn-sm btn-outline-danger remove-btn">削除</button></div>`;
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = label;
+
+    const actions = document.createElement("div");
+    actions.className = "d-flex gap-1";
+
+    const upButton = document.createElement("button");
+    upButton.type = "button";
+    upButton.className = "btn btn-sm btn-outline-secondary move-up-btn";
+    upButton.textContent = "↑";
+
+    const downButton = document.createElement("button");
+    downButton.type = "button";
+    downButton.className = "btn btn-sm btn-outline-secondary move-down-btn";
+    downButton.textContent = "↓";
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "btn btn-sm btn-outline-danger remove-btn";
+    removeButton.textContent = "削除";
+
+    actions.appendChild(upButton);
+    actions.appendChild(downButton);
+    actions.appendChild(removeButton);
+
+    li.appendChild(labelSpan);
+    li.appendChild(actions);
     return li;
   }
 
