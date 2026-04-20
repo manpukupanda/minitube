@@ -38,9 +38,10 @@
       <a class="list-group-item list-group-item-action" href="/home#favorites">お気に入り</a>
       <a class="list-group-item list-group-item-action" href="/home#watch-later">後で見る</a>
       <a class="list-group-item list-group-item-action" href="/home#recent">最近見た</a>
+      <a class="list-group-item list-group-item-action" href="/home#all">すべての動画</a>
       {% endif %}
       {% if is_admin or is_uploader %}
-      <a class="list-group-item list-group-item-action" href="/videos">動画一覧</a>
+      <a class="list-group-item list-group-item-action" href="/videos">動画管理</a>
       {% endif %}
       {% if is_uploader or is_admin %}
       <a class="list-group-item list-group-item-action" href="/upload">アップロード</a>
@@ -61,7 +62,7 @@
       <div class="list-group list-group-flush">
         <a class="list-group-item list-group-item-action" href="/home">ホーム</a>
         <a class="list-group-item list-group-item-action" href="/categories">カテゴリ</a>
-        {% if is_admin or is_uploader %}<a class="list-group-item list-group-item-action" href="/videos">動画一覧</a>{% endif %}
+        {% if is_admin or is_uploader %}<a class="list-group-item list-group-item-action" href="/videos">動画管理</a>{% endif %}
         {% if is_uploader or is_admin %}<a class="list-group-item list-group-item-action" href="/upload">アップロード</a>{% endif %}
         {% if is_admin %}<a class="list-group-item list-group-item-action" href="/admin/settings">設定（admin）</a>{% endif %}
       </div>

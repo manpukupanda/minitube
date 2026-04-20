@@ -173,7 +173,7 @@ project/
 | GET | `/logout` | ログアウト | 不要 |
 | GET | `/register` | ユーザ登録ページ | 不要 |
 | POST | `/api/register` | ユーザ登録 | 不要 |
-| GET | `/videos` | 動画一覧ページ | 不要（公開動画） |
+| GET | `/videos` | 動画管理ページ | 不要（公開動画） |
 | GET | `/upload` | アップロードページ | 必要（uploader/admin） |
 | POST | `/api/upload` | 動画アップロード → 編集画面へリダイレクト | 必要（uploader/admin） |
 | GET | `/videos/{id}/edit` | 動画編集ページ | 必要（オーナー/admin） |

@@ -19,7 +19,7 @@
     <p class="small text-secondary mb-2">カテゴリ: {{ category_name or '未分類' }}</p>
     {% if description %}<p class="small mb-3">{{ description }}</p>{% endif %}
 
-    <div id="processing-placeholder" class="ratio ratio-16x9 border rounded d-flex flex-column align-items-center justify-content-center gap-2 text-secondary" style="display: none;">
+    <div id="processing-placeholder" class="ratio ratio-16x9 border rounded d-flex flex-column align-items-center justify-content-center gap-2 text-secondary d-none">
       <div class="spinner-border spinner-border-sm"></div>
       <span id="processing-label">処理中...</span>
     </div>
@@ -191,13 +191,14 @@
   }
 
   function showProcessing(label) {
-    processingLabelEl.textContent = label;
-    placeholderEl.style.display = "flex";
+    alert("Processing...");
+    placeholderEl.classList.remove("d-none");
     videoEl.style.display = "none";
   }
 
   async function startPlayer() {
-    placeholderEl.style.display = "none";
+
+    placeholderEl.classList.add("d-none");
     videoEl.style.display = "block";
 
     let hlsUrl;
@@ -328,7 +329,7 @@
       setStatus("");
       await startPlayer();
     } else if (currentJobStatus === "error") {
-      placeholderEl.style.display = "none";
+      placeholderEl.classList.add("d-none");
       setStatus("動画の処理中にエラーが発生しました。", true);
     } else if (currentJobStatus === "processing") {
       showProcessing("処理中...");
@@ -356,7 +357,7 @@
       setStatus("");
       await startPlayer();
     } else if (currentJobStatus === "error") {
-      placeholderEl.style.display = "none";
+      placeholderEl.classList.add("d-none");
       setStatus("動画の処理中にエラーが発生しました。", true);
     } else if (currentJobStatus === "processing") {
       showProcessing("処理中...");

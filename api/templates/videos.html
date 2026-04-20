@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!--
-  videos.html - 動画一覧ページ
+  videos.html - 動画管理ページ
 
   公開動画は未ログインでも閲覧可能。プライベート動画は権限のあるユーザのみ表示される。
 -->
@@ -8,7 +8,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>動画一覧 - minitube</title>
+  <title>動画管理 - minitube</title>
   <style>
     * {
       box-sizing: border-box;
@@ -167,7 +167,7 @@
       <a href="/home">ホーム</a>
       <a href="/categories">カテゴリ</a>
       {% if is_admin or is_uploader %}
-      <a href="/videos">動画一覧</a>
+      <a href="/videos">動画管理</a>
       {% endif %}
       {% if is_uploader or is_admin %}
       <a href="/upload">アップロード</a>
@@ -190,7 +190,7 @@
   </header>
 
   <main>
-    <h2>動画一覧</h2>
+    <h2>動画管理</h2>
 
     {% if videos %}
     <table>
